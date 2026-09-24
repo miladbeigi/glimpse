@@ -125,6 +125,7 @@ Sources/Glimpse/
   Editor/ Annotation.swift, EditorModel.swift, Renderer.swift, CanvasView.swift,
           EditorWindowController.swift, EditorToolbar.swift
 Tests/GlimpseTests                   stitcher, renderer, key-combo tests
+scripts/                             build, install, signing setup, smoke test, icon
 ```
 
 - One `Renderer` draws annotations for both the on-screen canvas and export, so what you see is what you get.

@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotkeyManager.shared.install()
 
         #if DEBUG
+        if DocsScenario.runIfRequested() { return }
         if ProcessInfo.processInfo.environment["GLIMPSE_DEBUG_SCENARIO"] != nil {
             DebugScenario.runIfRequested()
             return

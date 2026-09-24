@@ -164,7 +164,7 @@ final class SelectionView: NSView {
     private weak var controller: SelectionController?
     private let screen: NSScreen
     private let frozen: CGImage
-    private let scale: CGFloat
+    private var scale: CGFloat
     private var mouse: CGPoint?
     private var dragStart: CGPoint?
     private var selection: CGRect?
@@ -459,6 +459,24 @@ extension SelectionController {
 }
 
 extension SelectionView {
+    /// A standalone selection view of any size (for README screenshots).
+    static func debugView(frame: NSRect, screen: NSScreen, frozen: CGImage) -> SelectionView {
+        let window = SelectionController.debugWindow(screen: screen, frozen: frozen, mode: .area)
+        let view = window.selectionView
+        view.removeFromSuperview()
+        view.frame = frame
+        view.scale = CGFloat(frozen.width) / max(frame.width, 1)
+        let container = NSView(frame: frame)
+        let imageView = NSImageView(frame: frame)
+        imageView.image = NSImage(cgImage: frozen, size: frame.size)
+        imageView.imageScaling = .scaleAxesIndependently
+        container.addSubview(imageView)
+        container.addSubview(view)
+        debugContainers.append(container)
+        return view
+    }
+    private static var debugContainers: [NSView] = []
+
     func debugSet(mouse: CGPoint, selection: CGRect?) {
         self.mouse = mouse
         self.selection = selection

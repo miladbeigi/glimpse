@@ -1,0 +1,27 @@
+name: Release
+
+# Push a tag like v1.0.0 to publish a release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: swift test
+      - name: Build universal app and zip
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: scripts/build.sh --zip
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/Glimpse-*.zip build/Glimpse-*.zip.sha256 \
+            --title "Glimpse $GITHUB_REF_NAME" --generate-notes

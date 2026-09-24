@@ -1,40 +1,77 @@
 #!/bin/bash
-# Builds build/Glimpse.app (release). Usage: scripts/build.sh [--install]
+# Builds build/Glimpse.app.
+#
+#   scripts/build.sh             build build/Glimpse.app (universal: Apple silicon + Intel)
+#   scripts/build.sh --install   also copy it to /Applications and launch it
+#   scripts/build.sh --zip       also write build/Glimpse-<version>.zip and .zip.sha256 (release assets)
+#   scripts/build.sh --debug     build a debug-configuration app instead (same bundle id and signature)
+#
+# Environment:
+#   VERSION                app version (default: contents of ./VERSION)
+#   GLIMPSE_SIGN_IDENTITY  codesigning identity (default: the local identity from scripts/setup-signing.sh,
+#                          else an Apple Development / Developer ID identity, else ad-hoc)
+#   ARCHS                  architectures to build (default: "arm64 x86_64")
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
-APP="$ROOT/build/Glimpse.app"
 
-swift build -c release 2>&1 | grep -vE "^\[|^Building|^Compiling|^Write" || true
-BIN="$(swift build -c release --show-bin-path)/Glimpse"
-[ -x "$BIN" ] || { echo "build failed"; exit 1; }
+VERSION="${VERSION:-$(cat VERSION)}"
+VERSION="${VERSION#v}"
+CONFIG=release
+for arg in "$@"; do [ "$arg" = "--debug" ] && CONFIG=debug; done
+ARCHS="${ARCHS:-arm64 x86_64}"
+[ "$CONFIG" = debug ] && ARCHS="$(uname -m)"
+
+BINS=()
+for arch in $ARCHS; do
+  FLAGS=(-c "$CONFIG" --triple "$arch-apple-macosx14.0" --scratch-path ".build/$arch")
+  swift build "${FLAGS[@]}" 2>&1 | grep -E "error|warning: |Compiling Glimpse|Build complete" | grep -v "^\[" || true
+  BIN="$(swift build "${FLAGS[@]}" --show-bin-path)/Glimpse"
+  [ -x "$BIN" ] || { echo "build failed for $arch"; exit 1; }
+  BINS+=("$BIN")
+done
 
 if [ ! -f "$ROOT/build/AppIcon.icns" ]; then
   swift scripts/make-icon.swift "$ROOT" >/dev/null
   iconutil -c icns "$ROOT/build/AppIcon.iconset" -o "$ROOT/build/AppIcon.icns"
 fi
 
+APP="$ROOT/build/Glimpse.app"
+[ "$CONFIG" = debug ] && APP="$ROOT/build/debug/Glimpse.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/Glimpse"
+lipo -create "${BINS[@]}" -output "$APP/Contents/MacOS/Glimpse"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 cp "$ROOT/build/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
-# Sign with a real identity if one exists (keeps permissions across rebuilds); otherwise ad-hoc.
+# Sign. A stable identity keeps macOS permissions (Screen Recording) across rebuilds.
 LOCAL_KC="$HOME/Library/Application Support/Glimpse-dev/glimpse-signing.keychain-db"
+KC_ARGS=()
 if [ -z "${GLIMPSE_SIGN_IDENTITY:-}" ] && [ -f "$LOCAL_KC" ]; then
-  # Local self-signed identity from scripts/setup-signing.sh (stable signature → permissions survive rebuilds).
   security unlock-keychain -p glimpse "$LOCAL_KC" 2>/dev/null || true
   GLIMPSE_SIGN_IDENTITY="$(security find-identity -p codesigning "$LOCAL_KC" 2>/dev/null | awk '/Glimpse Local Signing/ {print $2; exit}')"
+  [ -n "$GLIMPSE_SIGN_IDENTITY" ] && KC_ARGS=(--keychain "$LOCAL_KC")
 fi
 IDENTITY="${GLIMPSE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID/ {print $2; exit}')}"
-codesign --force --deep --sign "${IDENTITY:--}" ${LOCAL_KC:+--keychain "$LOCAL_KC"} "$APP"
-echo "Built $APP (signed: ${IDENTITY:-ad-hoc})"
+codesign --force --sign "${IDENTITY:--}" ${KC_ARGS[@]+"${KC_ARGS[@]}"} "$APP"
+echo "Built $APP (version $VERSION, $(lipo -archs "$APP/Contents/MacOS/Glimpse"), signed: ${IDENTITY:-ad-hoc})"
 
-if [ "${1:-}" = "--install" ]; then
-  pkill -x Glimpse 2>/dev/null || true
-  rm -rf /Applications/Glimpse.app
-  cp -R "$APP" /Applications/
-  echo "Installed /Applications/Glimpse.app"
-  open /Applications/Glimpse.app
-fi
+for arg in "$@"; do
+  case "$arg" in
+  --zip)
+    ZIP="$ROOT/build/Glimpse-$VERSION.zip"
+    rm -f "$ZIP"
+    ditto -c -k --keepParent "$APP" "$ZIP"
+    (cd "$ROOT/build" && shasum -a 256 "$(basename "$ZIP")" > "$(basename "$ZIP").sha256")
+    echo "Wrote $ZIP and $ZIP.sha256"
+    ;;
+  --install)
+    pkill -x Glimpse 2>/dev/null && sleep 1 || true
+    rm -rf /Applications/Glimpse.app
+    cp -R "$APP" /Applications/
+    open /Applications/Glimpse.app
+    echo "Installed /Applications/Glimpse.app and launched it"
+    ;;
+  esac
+done
