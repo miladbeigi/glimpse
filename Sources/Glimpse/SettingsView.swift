@@ -15,7 +15,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "Glimpse Settings"
             window.isReleasedWhenClosed = false
-            window.contentViewController = NSHostingController(rootView: SettingsView())
+            // A SwiftUI TabView hosted in a plain NSWindow gets its tabs pushed into an unconfigured toolbar,
+            // which collapses them into the » overflow button. Use a real preferences-style toolbar instead.
+            window.toolbarStyle = .preference
+            window.contentViewController = SettingsTabController()
             window.center()
             let controller = SettingsWindowController(window: window)
             window.delegate = controller
@@ -32,16 +35,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-struct SettingsView: View {
-    var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
-            CaptureSettings().tabItem { Label("Capture", systemImage: "camera.viewfinder") }
-            OverlaySettings().tabItem { Label("Quick Access", systemImage: "rectangle.on.rectangle") }
-            ShortcutSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }
-            PermissionSettings().tabItem { Label("Permissions", systemImage: "lock.shield") }
-        }
-        .frame(width: 560, height: 540)
+private final class SettingsTabController: NSTabViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        tabStyle = .toolbar
+        addTab("General", "gearshape", GeneralSettings())
+        addTab("Capture", "camera.viewfinder", CaptureSettings())
+        addTab("Quick Access", "rectangle.on.rectangle", OverlaySettings())
+        addTab("Shortcuts", "keyboard", ShortcutSettings())
+        addTab("Permissions", "lock.shield", PermissionSettings())
+    }
+
+    private func addTab(_ label: String, _ symbol: String, _ view: some View) {
+        let item = NSTabViewItem(viewController: NSHostingController(rootView: view.frame(width: 560, height: 540)))
+        item.label = label
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        addTabViewItem(item)
     }
 }
 
