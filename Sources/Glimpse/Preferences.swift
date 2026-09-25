@@ -64,6 +64,8 @@ final class Preferences: ObservableObject {
     @Published var showMagnifier: Bool { didSet { defaults.set(showMagnifier, forKey: Keys.showMagnifier) } }
     @Published var windowShadow: Bool { didSet { defaults.set(windowShadow, forKey: Keys.windowShadow) } }
     @Published var selfTimerSeconds: Int { didSet { defaults.set(selfTimerSeconds, forKey: Keys.selfTimer) } }
+    /// Lets connected MCP clients (`Glimpse mcp`) take screenshots. Off until the user opts in.
+    @Published var agentAccess: Bool { didSet { defaults.set(agentAccess, forKey: Keys.agentAccess) } }
 
     @Published private(set) var shortcuts: [HotkeyAction: KeyCombo]
 
@@ -85,6 +87,7 @@ final class Preferences: ObservableObject {
         static let showMagnifier = "showMagnifier"
         static let windowShadow = "windowShadow"
         static let selfTimer = "selfTimerSeconds"
+        static let agentAccess = "agentAccess"
         static let shortcuts = "shortcuts"
         static let editorColor = "editorColor"
         static let editorLineWidth = "editorLineWidth"
@@ -118,6 +121,7 @@ final class Preferences: ObservableObject {
         showCrosshair = bool(Keys.showCrosshair, true)
         showMagnifier = bool(Keys.showMagnifier, true)
         windowShadow = bool(Keys.windowShadow, true)
+        agentAccess = bool(Keys.agentAccess, false)
         selfTimerSeconds = d.object(forKey: Keys.selfTimer) == nil ? 5 : d.integer(forKey: Keys.selfTimer)
 
         var map: [HotkeyAction: KeyCombo] = [:]

@@ -88,7 +88,7 @@ enum ImageExporter {
     }
 
     /// JPEG has no alpha: composite over white.
-    private static func flattened(_ image: CGImage) -> CGImage? {
+    nonisolated static func flattened(_ image: CGImage) -> CGImage? {
         guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: ImageUtil.bitmapSpace(for: image),
                                   bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }

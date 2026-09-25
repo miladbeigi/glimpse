@@ -30,10 +30,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         #endif
 
         UpdateController.shared.start()
+        AgentToolRunner.cleanOutput()
+        AgentServer.shared.start()
 
         if !ScreenCapture.hasPermission {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { PermissionsWindowController.show() }
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AgentServer.shared.stop()
     }
 
     /// Images dropped on the app icon or opened with "Open With › Glimpse" go straight to the editor.

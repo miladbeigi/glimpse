@@ -46,7 +46,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 }
 
 private enum SettingsTab: CaseIterable {
-    case general, capture, quickAccess, shortcuts, permissions
+    case general, capture, quickAccess, shortcuts, agents, permissions
 
     var title: String {
         switch self {
@@ -54,6 +54,7 @@ private enum SettingsTab: CaseIterable {
         case .capture: "Capture"
         case .quickAccess: "Quick Access"
         case .shortcuts: "Shortcuts"
+        case .agents: "Agents"
         case .permissions: "Permissions"
         }
     }
@@ -64,6 +65,7 @@ private enum SettingsTab: CaseIterable {
         case .capture: "camera.viewfinder"
         case .quickAccess: "rectangle.on.rectangle"
         case .shortcuts: "keyboard"
+        case .agents: "sparkles"
         case .permissions: "lock.shield"
         }
     }
@@ -75,6 +77,7 @@ private enum SettingsTab: CaseIterable {
         case .capture: 340
         case .quickAccess: 270
         case .shortcuts: 520
+        case .agents: 400
         case .permissions: 200
         }
     }
@@ -116,6 +119,7 @@ private struct SettingsView: View {
                 case .capture: CaptureSettings()
                 case .quickAccess: OverlaySettings()
                 case .shortcuts: ShortcutSettings()
+                case .agents: AgentSettings()
                 case .permissions: PermissionSettings()
                 }
             }
@@ -330,6 +334,52 @@ private struct ShortcutSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct AgentSettings: View {
+    @ObservedObject private var prefs = Preferences.shared
+    private let executable = Bundle.main.executablePath ?? "/Applications/Glimpse.app/Contents/MacOS/Glimpse"
+
+    private var claudeCommand: String { "claude mcp add glimpse -- \(executable) mcp" }
+    private var jsonConfig: String {
+        #"{ "mcpServers": { "glimpse": { "command": "\#(executable)", "args": ["mcp"] } } }"#
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Allow AI agents to take screenshots", isOn: $prefs.agentAccess)
+            } footer: {
+                Text("While this is on, agents you connect can list windows, take screenshots and read text from anything on screen.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Section("Connect an agent") {
+                command("Claude Code", claudeCommand)
+                command("Other MCP clients (Claude Desktop, Cursor, …)", jsonConfig)
+            }
+            Section {
+                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region and read_text. Screenshots are also saved as full-resolution files.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func command(_ title: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Button("Copy") { Clipboard.copy(text: text) }
+            }
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
