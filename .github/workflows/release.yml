@@ -12,10 +12,33 @@ permissions:
 jobs:
   release:
     runs-on: macos-latest
+    env:
+      HAS_SIGNING_IDENTITY: ${{ secrets.GLIMPSE_SIGNING_P12 != '' }}
     steps:
       - uses: actions/checkout@v7
       - name: Test
         run: swift test
+      # A stable signature (from scripts/setup-signing.sh --github) lets updates keep the Screen Recording
+      # permission; without the secret the build falls back to ad-hoc signing.
+      - name: Import signing identity
+        env:
+          P12: ${{ secrets.GLIMPSE_SIGNING_P12 }}
+          PASSWORD: ${{ secrets.GLIMPSE_SIGNING_PASSWORD }}
+        if: env.HAS_SIGNING_IDENTITY == 'true'
+        run: |
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/id.p12"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p ci "$KC"
+          security import "$RUNNER_TEMP/id.p12" -k "$KC" -P "$PASSWORD" -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/id.p12"
+          # By hash: the self-signed certificate isn't trusted, so codesign won't resolve it by name.
+          IDENTITY="$(security find-identity -p codesigning "$KC" | awk '/Glimpse Local Signing/ {print $2; exit}')"
+          [ -n "$IDENTITY" ] || { echo "::error::Glimpse Local Signing identity not found after import"; exit 1; }
+          echo "GLIMPSE_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       - name: Build universal app and zip
         env:
           VERSION: ${{ github.ref_name }}
