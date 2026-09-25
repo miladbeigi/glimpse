@@ -151,7 +151,7 @@ open "glimpse://annotate?filepath=/path/to/image.png"
 ```
 
 Also `capture-previous-area`, `restore-recently-closed`, `annotate-clipboard`, `pin-clipboard`,
-`pin?filepath=…`, `open-settings` and `permissions`. Region commands accept `display=N` (1-based).
+`pin?filepath=…`, `open-settings` (optionally `?tab=shortcuts`) and `permissions`. Region commands accept `display=N` (1-based).
 
 ## Build from source
 

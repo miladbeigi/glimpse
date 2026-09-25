@@ -51,7 +51,7 @@ enum URLCommands {
             } else {
                 EditorWindowController.open(capture: Capture(image: image, scale: scale))
             }
-        case "open-settings": SettingsWindowController.show()
+        case "open-settings": SettingsWindowController.show(tab: query["tab"])
         case "permissions": PermissionsWindowController.show()
         default:
             NSLog("Glimpse: unknown URL command \(url.absoluteString)")

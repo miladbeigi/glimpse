@@ -9,20 +9,28 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     static var isVisible: Bool { shared?.window?.isVisible == true }
 
-    static func show() {
+    /// `tab` is a tab's label, case-insensitive, spaces optional (e.g. "shortcuts"); nil keeps the current tab.
+    static func show(tab: String? = nil) {
         if shared == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 540),
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "Glimpse Settings"
             window.isReleasedWhenClosed = false
-            // A SwiftUI TabView hosted in a plain NSWindow gets its tabs pushed into an unconfigured toolbar,
-            // which collapses them into the » overflow button. Use a real preferences-style toolbar instead.
-            window.toolbarStyle = .preference
-            window.contentViewController = SettingsTabController()
+            // The tab bar is drawn in SwiftUI below the title bar: a SwiftUI TabView collapses its tabs into the
+            // toolbar's » overflow button, and the AppKit preference toolbar packs its icons tight under the title.
+            let hosting = NSHostingController(rootView: SettingsView(selection: selection))
+            // min = max = the view's fixed size, so the window resizes to fit each tab.
+            hosting.sizingOptions = [.minSize, .maxSize]
+            window.contentViewController = hosting
             window.center()
             let controller = SettingsWindowController(window: window)
             window.delegate = controller
             shared = controller
+        }
+        if let tab, let match = SettingsTab.allCases.first(where: {
+            $0.title.lowercased().filter { !$0.isWhitespace } == tab.lowercased().filter { !$0.isWhitespace }
+        }) {
+            selection.tab = match
         }
         shared?.showWindow(nil)
         shared?.window?.makeKeyAndOrderFront(nil)
@@ -30,27 +38,117 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private static let selection = SettingsSelection()
+
     func windowWillClose(_ notification: Notification) {
         DispatchQueue.main.async { AppDelegate.refreshActivationPolicy() }
     }
 }
 
-private final class SettingsTabController: NSTabViewController {
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        tabStyle = .toolbar
-        addTab("General", "gearshape", GeneralSettings())
-        addTab("Capture", "camera.viewfinder", CaptureSettings())
-        addTab("Quick Access", "rectangle.on.rectangle", OverlaySettings())
-        addTab("Shortcuts", "keyboard", ShortcutSettings())
-        addTab("Permissions", "lock.shield", PermissionSettings())
+private enum SettingsTab: CaseIterable {
+    case general, capture, quickAccess, shortcuts, permissions
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .capture: "Capture"
+        case .quickAccess: "Quick Access"
+        case .shortcuts: "Shortcuts"
+        case .permissions: "Permissions"
+        }
     }
 
-    private func addTab(_ label: String, _ symbol: String, _ view: some View) {
-        let item = NSTabViewItem(viewController: NSHostingController(rootView: view.frame(width: 560, height: 540)))
-        item.label = label
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        addTabViewItem(item)
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .capture: "camera.viewfinder"
+        case .quickAccess: "rectangle.on.rectangle"
+        case .shortcuts: "keyboard"
+        case .permissions: "lock.shield"
+        }
+    }
+
+    /// Fits each tab's content; General adds `extraRows` for its optional rows. The form scrolls beyond that.
+    func height(extraRows: CGFloat = 0) -> CGFloat {
+        switch self {
+        case .general: 640 + extraRows * 40
+        case .capture: 340
+        case .quickAccess: 270
+        case .shortcuts: 520
+        case .permissions: 200
+        }
+    }
+}
+
+@MainActor
+private final class SettingsSelection: ObservableObject {
+    @Published var tab = SettingsTab.general
+}
+
+private struct SettingsView: View {
+    @ObservedObject var selection: SettingsSelection
+    @ObservedObject private var prefs = Preferences.shared
+    @ObservedObject private var updates = UpdateController.shared
+
+    /// Rows General shows only sometimes: JPEG quality, an available update and the last check's status.
+    private var generalExtraRows: CGFloat {
+        var rows: CGFloat = prefs.imageFormat == .jpeg ? 1 : 0
+        if Updater.repository != nil {
+            if updates.availableUpdate != nil { rows += 1 }
+            if updates.status != nil { rows += 1 }
+        }
+        return rows
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    TabButton(tab: tab, isSelected: selection.tab == tab) { selection.tab = tab }
+                }
+            }
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            Divider()
+            Group {
+                switch selection.tab {
+                case .general: GeneralSettings()
+                case .capture: CaptureSettings()
+                case .quickAccess: OverlaySettings()
+                case .shortcuts: ShortcutSettings()
+                case .permissions: PermissionSettings()
+                }
+            }
+            .frame(width: 560, height: selection.tab.height(extraRows: generalExtraRows))
+        }
+    }
+}
+
+private struct TabButton: View {
+    let tab: SettingsTab
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: tab.symbol)
+                    .font(.system(size: 20))
+                    .frame(height: 24)
+                Text(tab.title).font(.system(size: 11))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(minWidth: 64)
+            .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .background {
+                if isSelected { RoundedRectangle(cornerRadius: 8).fill(.quaternary) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
