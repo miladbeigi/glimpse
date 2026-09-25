@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         #endif
 
         UpdateController.shared.start()
+        AgentToolRunner.cleanOutput()
+        AgentServer.shared.start()
 
         if !ScreenCapture.hasPermission {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { PermissionsWindowController.show() }

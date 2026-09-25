@@ -19,6 +19,7 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 | Pin | Always-on-top screenshot, resize, opacity, arrow-key nudging, lock (click-through) mode | ✅ |
 | OCR | Copy text from any area, QR code reading, on-device | ✅ (Vision framework) |
 | Automation | `glimpse://` URL commands, optionally with explicit regions | ✅ |
+| AI agents | MCP server (`Glimpse mcp`): list windows/displays, screenshot window/screen/region, OCR | ✅ (opt-in) |
 | Background tool | Padding, wallpapers, presets | ❌ (v2) |
 | Recording, Cloud, History | — | ❌ |
 
@@ -105,6 +106,7 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 - Capture: crosshair, magnifier, window shadow, self-timer duration.
 - Quick Access: corner, size, auto-close.
 - Shortcuts: recorder per action (click, press combo; ⌫ clears; Esc cancels).
+- Agents: opt-in toggle for MCP access, copyable setup command for Claude Code and a JSON config for other clients.
 - Permissions: Screen Recording & Accessibility status with buttons to open System Settings.
 
 ## 3. Architecture
@@ -122,6 +124,10 @@ Sources/Glimpse/
   PinWindow.swift, HUD.swift, Countdown.swift, TextRecognizer.swift
   ScrollingCapture.swift, Stitcher.swift
   SettingsView.swift
+  Agent/ MCPBridge.swift             `Glimpse mcp`: stdio JSON-RPC, forwards tool calls to the app
+         AgentServer.swift           Unix socket in Application Support, serves calls in the app
+         AgentTools.swift            tool definitions + capture/OCR execution
+         AgentSocket.swift           socket and line-framing helpers
   Editor/ Annotation.swift, EditorModel.swift, Renderer.swift, CanvasView.swift,
           EditorWindowController.swift, EditorToolbar.swift
 Tests/GlimpseTests                   stitcher, renderer, key-combo tests

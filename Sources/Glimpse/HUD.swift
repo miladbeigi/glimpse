@@ -147,7 +147,9 @@ enum TextRecognizer {
             textRequest.automaticallyDetectsLanguage = true
             let barcodeRequest = VNDetectBarcodesRequest()
 
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            // Vision misreads text in images with alpha (window captures have transparent corners).
+            let opaque = [.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
+            let handler = VNImageRequestHandler(cgImage: opaque ? image : ImageExporter.flattened(image) ?? image, options: [:])
             do {
                 try handler.perform([textRequest, barcodeRequest])
             } catch {

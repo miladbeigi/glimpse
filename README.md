@@ -56,6 +56,8 @@ keys, or lock it so clicks pass through.
 ### And
 
 - Every shortcut is configurable, and captures can be scripted with `glimpse://` URLs.
+- AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots and read text through Glimpse's
+  [MCP server](#ai-agents-mcp).
 - Settings for what happens after a capture (overlay, clipboard, auto-save, open editor), save folder,
   PNG or JPEG, overlay position and size, and launch at login.
 
@@ -152,6 +154,38 @@ open "glimpse://annotate?filepath=/path/to/image.png"
 
 Also `capture-previous-area`, `restore-recently-closed`, `annotate-clipboard`, `pin-clipboard`,
 `pin?filepath=…`, `open-settings` (optionally `?tab=shortcuts`) and `permissions`. Region commands accept `display=N` (1-based).
+
+## AI agents (MCP)
+
+Glimpse includes an [MCP](https://modelcontextprotocol.io) server, so coding agents and other AI tools can see
+your screen. Turn on **Settings › Agents › Allow AI agents to take screenshots**, then connect your agent:
+
+```sh
+claude mcp add glimpse -- /Applications/Glimpse.app/Contents/MacOS/Glimpse mcp
+```
+
+Other clients take the same command in their MCP config:
+
+```json
+{ "mcpServers": { "glimpse": { "command": "/Applications/Glimpse.app/Contents/MacOS/Glimpse", "args": ["mcp"] } } }
+```
+
+| Tool | What it does |
+|---|---|
+| `list_windows` | On-screen windows front to back: id, app, bundle id, title, bounds |
+| `list_displays` | Displays with frame and scale |
+| `screenshot_window` | One window by `window_id`, or `app` and/or `title`, even when it's covered |
+| `screenshot_screen` | A whole display |
+| `screenshot_region` | A rectangle, in the same screen coordinates as `list_windows` |
+| `read_text` | On-device OCR (and QR codes) of a window, region or display |
+
+Screenshots come back inline, scaled to `max_size` (1568 px on the long edge by default, `0` for full size), and
+are also saved at full resolution (`save_path`, or a temporary folder); the result includes the file path and the
+captured frame for mapping pixels to screen points. `format: "jpeg"` makes them smaller and `include_image: false`
+returns only the path.
+
+`Glimpse mcp` does no capturing itself: it forwards calls to the Glimpse app (launching it if needed) over a
+socket only your user can open, so captures use Glimpse's Screen Recording permission, not your terminal's.
 
 ## Build from source
 
