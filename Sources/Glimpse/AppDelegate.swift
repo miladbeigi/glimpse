@@ -38,6 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        AgentServer.shared.stop()
+    }
+
     /// Images dropped on the app icon or opened with "Open With › Glimpse" go straight to the editor.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
