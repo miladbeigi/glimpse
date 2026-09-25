@@ -1,6 +1,7 @@
 name: Release
 
-# Push a tag like v1.0.0 to publish a release.
+# Run scripts/release.sh <version> (or push a tag like v1.1.0) to publish a release.
+# install.sh and the app's self-updater both read the latest release.
 on:
   push:
     tags: ["v*"]
@@ -18,6 +19,7 @@ jobs:
       - name: Build universal app and zip
         env:
           VERSION: ${{ github.ref_name }}
+          UPDATE_REPO: ${{ github.repository }}
         run: scripts/build.sh --zip
       - name: Publish release
         env:

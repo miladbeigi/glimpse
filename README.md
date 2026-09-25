@@ -73,7 +73,8 @@ curl -fsSL https://raw.githubusercontent.com/miladbeigi/glimpse/master/install.s
 
 It downloads the latest release, checks its SHA-256, installs **Glimpse.app** to `/Applications` (or
 `~/Applications` if that isn't writable), and launches it. Read [`install.sh`](install.sh) first if you like;
-it's short. Running it again updates or reinstalls.
+it's short. Running it again updates or reinstalls. After that, Glimpse keeps itself up to date (see
+[Updates](#updates)).
 
 <details>
 <summary>Manual install</summary>
@@ -100,6 +101,17 @@ On first launch a setup window walks you through them:
 
 Release builds are ad-hoc signed, so after updating you may need to switch Glimpse off and on again in the
 Screen Recording list.
+
+### Updates
+
+At launch and every 6 hours, Glimpse checks this repository's latest GitHub release. When a newer version is
+out, **Update to Glimpse X.Y.Z** shows up at the top of the menu bar menu and in **Settings → General →
+Updates**, which also has **Check Now** and a switch to turn automatic checks off. Updating downloads the zip,
+checks its SHA-256 against the `.sha256` file published with the release, swaps the app in place and
+relaunches.
+
+The checksum confirms the download isn't corrupted; it isn't a signature. Anyone who can publish releases to
+this repository can ship an update.
 
 ## Shortcuts
 
@@ -181,10 +193,14 @@ also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
 
 ## Releasing
 
-1. Bump `VERSION` and commit.
-2. Tag and push: `git tag v1.0.0 && git push origin v1.0.0`.
-3. The **Release** workflow runs the tests, builds a universal app and publishes `Glimpse-<version>.zip`
-   and its `.sha256` to a GitHub release, which `install.sh` picks up.
+```sh
+scripts/release.sh patch        # or minor, major, or an exact version like 1.2.0
+```
+
+It checks that you're on an up-to-date, clean `master`, writes `VERSION`, commits, tags `v<version>` and pushes.
+The **Release** workflow then runs the tests, builds a universal app and publishes `Glimpse-<version>.zip` and
+its `.sha256` to a GitHub release. `install.sh` and the in-app updater both pick it up from there. Follow the
+build with `gh run watch`.
 
 The **CI** workflow runs the tests and builds the app on every push to `master` and every pull request.
 

@@ -99,6 +99,9 @@ private struct GeneralSettings: View {
                 }
                 Toggle("Save and copy Retina screenshots at 1×", isOn: $prefs.saveAt1x)
             }
+            if Updater.repository != nil {
+                UpdateSection()
+            }
         }
         .formStyle(.grouped)
     }
@@ -111,6 +114,37 @@ private struct GeneralSettings: View {
         panel.directoryURL = prefs.saveDirectory
         if panel.runModal() == .OK, let url = panel.url {
             prefs.saveDirectory = url
+        }
+    }
+}
+
+private struct UpdateSection: View {
+    @ObservedObject private var updates = UpdateController.shared
+
+    var body: some View {
+        Section("Updates") {
+            Toggle("Check for updates automatically", isOn: $updates.checkAutomatically)
+            HStack {
+                Text("Version \(Updater.currentVersion)")
+                Spacer()
+                if updates.isChecking { ProgressView().controlSize(.small) }
+                Button("Check Now") { Task { await updates.check(manual: true) } }
+                    .disabled(updates.isChecking || updates.isInstalling)
+            }
+            if let update = updates.availableUpdate {
+                HStack {
+                    Image(systemName: "arrow.down.circle.fill").foregroundStyle(.tint)
+                    Text("Version \(update.version) is available")
+                    Spacer()
+                    Button(updates.isInstalling ? "Updating…" : "Update and Relaunch") {
+                        Task { await updates.install() }
+                    }
+                    .disabled(updates.isInstalling)
+                }
+            }
+            if let status = updates.status {
+                Text(status).font(.callout).foregroundStyle(.secondary)
+            }
         }
     }
 }

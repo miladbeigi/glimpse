@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         #endif
 
+        UpdateController.shared.start()
+
         if !ScreenCapture.hasPermission {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { PermissionsWindowController.show() }
         }
@@ -81,6 +83,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !ScreenCapture.hasPermission {
             let warn = item("Grant Screen Recording Permission…", #selector(openPermissions), symbol: "exclamationmark.triangle.fill")
             menu.addItem(warn)
+            menu.addItem(.separator())
+        }
+        if let update = UpdateController.shared.availableUpdate {
+            let mi = item("Update to Glimpse \(update.version)", #selector(installUpdate), symbol: "arrow.down.circle.fill")
+            mi.isEnabled = !UpdateController.shared.isInstalling
+            menu.addItem(mi)
             menu.addItem(.separator())
         }
         menu.addItem(item("Capture Area", #selector(captureArea), symbol: "rectangle.dashed", hotkey: .captureArea))
@@ -147,6 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func pinClipboard() { CaptureCoordinator.shared.pinClipboard() }
     @objc private func restoreRecent() { QuickAccessManager.shared.restoreRecentlyClosed() }
     @objc private func unlockPins() { PinWindowController.unlockAll() }
+    @objc private func installUpdate() {
+        // install() only returns if it failed; Settings shows why.
+        Task { await UpdateController.shared.install(); SettingsWindowController.show() }
+    }
     @objc private func openSettings() { SettingsWindowController.show() }
     @objc private func openPermissions() { PermissionsWindowController.show() }
     @objc private func openFolder() {

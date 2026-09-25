@@ -11,6 +11,8 @@
 #   GLIMPSE_SIGN_IDENTITY  codesigning identity (default: the local identity from scripts/setup-signing.sh,
 #                          else an Apple Development / Developer ID identity, else ad-hoc)
 #   ARCHS                  architectures to build (default: "arm64 x86_64")
+#   UPDATE_REPO            GitHub "owner/repo" the app checks for updates (default: the origin remote;
+#                          set it empty to build without updates)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
@@ -20,6 +22,9 @@ VERSION="${VERSION#v}"
 CONFIG=release
 for arg in "$@"; do [ "$arg" = "--debug" ] && CONFIG=debug; done
 ARCHS="${ARCHS:-arm64 x86_64}"
+if [[ -z "${UPDATE_REPO+x}" ]]; then
+  UPDATE_REPO="$(git remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##' || true)"
+fi
 [ "$CONFIG" = debug ] && ARCHS="$(uname -m)"
 
 BINS=()
@@ -43,6 +48,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 lipo -create "${BINS[@]}" -output "$APP/Contents/MacOS/Glimpse"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :UpdateRepository string $UPDATE_REPO" "$APP/Contents/Info.plist"
 cp "$ROOT/build/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 # Sign. A stable identity keeps macOS permissions (Screen Recording) across rebuilds.
@@ -55,7 +61,7 @@ if [ -z "${GLIMPSE_SIGN_IDENTITY:-}" ] && [ -f "$LOCAL_KC" ]; then
 fi
 IDENTITY="${GLIMPSE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID/ {print $2; exit}')}"
 codesign --force --sign "${IDENTITY:--}" ${KC_ARGS[@]+"${KC_ARGS[@]}"} "$APP"
-echo "Built $APP (version $VERSION, $(lipo -archs "$APP/Contents/MacOS/Glimpse"), signed: ${IDENTITY:-ad-hoc})"
+echo "Built $APP (version $VERSION${UPDATE_REPO:+, updates from $UPDATE_REPO}, $(lipo -archs "$APP/Contents/MacOS/Glimpse"), signed: ${IDENTITY:-ad-hoc})"
 
 for arg in "$@"; do
   case "$arg" in
