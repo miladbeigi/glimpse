@@ -36,6 +36,26 @@ enum OverlaySize: String, CaseIterable, Identifiable {
     }
 }
 
+enum CameraShape: String, CaseIterable, Identifiable {
+    case circle, roundedRect
+    var id: String { rawValue }
+    var title: String { self == .circle ? "Circle" : "Rounded Rectangle" }
+}
+
+enum CameraSize: String, CaseIterable, Identifiable {
+    case small, medium, large
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    /// Bubble width in points; the height follows the shape.
+    var width: CGFloat {
+        switch self {
+        case .small: return 150
+        case .medium: return 210
+        case .large: return 300
+        }
+    }
+}
+
 /// UserDefaults-backed settings. Every property writes through on change.
 @MainActor
 final class Preferences: ObservableObject {
@@ -67,6 +87,25 @@ final class Preferences: ObservableObject {
     /// Lets connected MCP clients (`Glimpse mcp`) take screenshots. Off until the user opts in.
     @Published var agentAccess: Bool { didSet { defaults.set(agentAccess, forKey: Keys.agentAccess) } }
 
+    // Recording
+    @Published var recordFrameRate: Int { didSet { defaults.set(recordFrameRate, forKey: Keys.recordFrameRate) } }
+    /// Full Retina resolution; off records at 1× (smaller files).
+    @Published var recordRetina: Bool { didSet { defaults.set(recordRetina, forKey: Keys.recordRetina) } }
+    @Published var recordShowCursor: Bool { didSet { defaults.set(recordShowCursor, forKey: Keys.recordShowCursor) } }
+    @Published var recordShowClicks: Bool { didSet { defaults.set(recordShowClicks, forKey: Keys.recordShowClicks) } }
+    /// Seconds before recording starts; 0 = none.
+    @Published var recordCountdown: Int { didSet { defaults.set(recordCountdown, forKey: Keys.recordCountdown) } }
+    @Published var recordMicrophone: Bool { didSet { defaults.set(recordMicrophone, forKey: Keys.recordMicrophone) } }
+    /// AVCaptureDevice uniqueID; empty = system default.
+    @Published var microphoneID: String { didSet { defaults.set(microphoneID, forKey: Keys.microphoneID) } }
+    @Published var recordSystemAudio: Bool { didSet { defaults.set(recordSystemAudio, forKey: Keys.recordSystemAudio) } }
+    @Published var recordCamera: Bool { didSet { defaults.set(recordCamera, forKey: Keys.recordCamera) } }
+    /// AVCaptureDevice uniqueID; empty = system default.
+    @Published var cameraID: String { didSet { defaults.set(cameraID, forKey: Keys.cameraID) } }
+    @Published var cameraShape: CameraShape { didSet { defaults.set(cameraShape.rawValue, forKey: Keys.cameraShape) } }
+    @Published var cameraSize: CameraSize { didSet { defaults.set(cameraSize.rawValue, forKey: Keys.cameraSize) } }
+    @Published var cameraMirror: Bool { didSet { defaults.set(cameraMirror, forKey: Keys.cameraMirror) } }
+
     @Published private(set) var shortcuts: [HotkeyAction: KeyCombo]
 
     private enum Keys {
@@ -89,6 +128,20 @@ final class Preferences: ObservableObject {
         static let selfTimer = "selfTimerSeconds"
         static let agentAccess = "agentAccess"
         static let shortcuts = "shortcuts"
+        static let recordFrameRate = "recordFrameRate"
+        static let recordRetina = "recordRetina"
+        static let recordShowCursor = "recordShowCursor"
+        static let recordShowClicks = "recordShowClicks"
+        static let recordCountdown = "recordCountdown"
+        static let recordMicrophone = "recordMicrophone"
+        static let microphoneID = "microphoneID"
+        static let recordSystemAudio = "recordSystemAudio"
+        static let recordCamera = "recordCamera"
+        static let cameraID = "cameraID"
+        static let cameraShape = "cameraShape"
+        static let cameraSize = "cameraSize"
+        static let cameraMirror = "cameraMirror"
+        static let cameraCenter = "cameraCenter"
         static let editorColor = "editorColor"
         static let editorLineWidth = "editorLineWidth"
         static let editorFontSize = "editorFontSize"
@@ -123,6 +176,19 @@ final class Preferences: ObservableObject {
         windowShadow = bool(Keys.windowShadow, true)
         agentAccess = bool(Keys.agentAccess, false)
         selfTimerSeconds = d.object(forKey: Keys.selfTimer) == nil ? 5 : d.integer(forKey: Keys.selfTimer)
+        recordFrameRate = d.integer(forKey: Keys.recordFrameRate) == 60 ? 60 : 30
+        recordRetina = bool(Keys.recordRetina, true)
+        recordShowCursor = bool(Keys.recordShowCursor, true)
+        recordShowClicks = bool(Keys.recordShowClicks, false)
+        recordCountdown = d.object(forKey: Keys.recordCountdown) == nil ? 3 : d.integer(forKey: Keys.recordCountdown)
+        recordMicrophone = bool(Keys.recordMicrophone, true)
+        microphoneID = d.string(forKey: Keys.microphoneID) ?? ""
+        recordSystemAudio = bool(Keys.recordSystemAudio, false)
+        recordCamera = bool(Keys.recordCamera, false)
+        cameraID = d.string(forKey: Keys.cameraID) ?? ""
+        cameraShape = CameraShape(rawValue: d.string(forKey: Keys.cameraShape) ?? "") ?? .circle
+        cameraSize = CameraSize(rawValue: d.string(forKey: Keys.cameraSize) ?? "") ?? .medium
+        cameraMirror = bool(Keys.cameraMirror, true)
 
         var map: [HotkeyAction: KeyCombo] = [:]
         if let data = d.data(forKey: Keys.shortcuts),
@@ -152,6 +218,15 @@ final class Preferences: ObservableObject {
         for action in HotkeyAction.allCases { shortcuts[action] = action.defaultCombo }
         defaults.removeObject(forKey: Keys.shortcuts)
         HotkeyManager.shared.registerAll()
+    }
+
+    /// Where the camera bubble was last left: its centre as a fraction of the recorded area (0…1, top-left origin).
+    var cameraCenter: CGPoint? {
+        get {
+            guard let a = defaults.array(forKey: Keys.cameraCenter) as? [Double], a.count == 2 else { return nil }
+            return CGPoint(x: a[0], y: a[1])
+        }
+        set { defaults.set(newValue.map { [Double($0.x), Double($0.y)] }, forKey: Keys.cameraCenter) }
     }
 
     // MARK: Editor style memory

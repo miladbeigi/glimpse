@@ -8,8 +8,8 @@ import AppKit
 enum URLCommands {
     static func handle(_ url: URL) {
         let command = (url.host ?? url.path).trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
-        let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
-            .map { ($0.name.lowercased(), $0.value ?? "") })
+        let query = Dictionary((URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .map { ($0.name.lowercased(), $0.value ?? "") }, uniquingKeysWith: { $1 })
         let c = CaptureCoordinator.shared
         // Optional explicit region: x, y, width, height in points from the top-left of `display` (1-based).
         var region: (CGRect, NSScreen)?
@@ -21,7 +21,30 @@ enum URLCommands {
             let r = CGRect(x: x, y: y, width: w, height: h).intersection(CGRect(origin: .zero, size: screen.frame.size))
             if !r.isNull, r.width >= 1, r.height >= 1 { region = (r, screen) }
         }
+        func flag(_ name: String) -> Bool? {
+            guard let v = query[name]?.lowercased() else { return nil }
+            return ["1", "true", "yes", "on"].contains(v)
+        }
+        let recording = RecordingOverrides(camera: flag("camera"), microphone: flag("mic"), systemAudio: flag("systemaudio"),
+                                           countdown: Int(query["countdown"] ?? ""),
+                                           duration: Double(query["duration"] ?? "").flatMap { $0 > 0 ? $0 : nil })
+        let recorder = RecordingController.shared
+        // autostart=0 stops at the control bar (position the camera, then press Start Recording).
+        let autostart = flag("autostart") ?? true
         switch command {
+        case "record-screen" where region != nil:
+            recorder.prepare(RecordingTarget(screen: region!.1, rect: region!.0), overrides: recording, startImmediately: autostart)
+        case "record-screen": recorder.recordInteractively(overrides: recording, startImmediately: flag("autostart") ?? false)
+        case "record-fullscreen":
+            let index = (Int(query["display"] ?? "") ?? 0) - 1
+            let screen = NSScreen.screens.indices.contains(index) ? NSScreen.screens[index] : NSScreen.withMouse
+            recorder.prepare(.fullScreen(screen), overrides: recording, startImmediately: autostart)
+        case "start-recording": recorder.start()
+        case "stop-recording": recorder.stop()
+        case "pause-recording": recorder.pause()
+        case "resume-recording": recorder.resume()
+        case "restart-recording": recorder.restart(confirm: false)
+        case "discard-recording", "cancel-recording": recorder.discard(confirm: false)
         case "capture-area" where region != nil: c.captureArea(rect: region!.0, on: region!.1)
         case "self-timer" where region != nil:
             c.selfTimer(rect: region!.0, on: region!.1,

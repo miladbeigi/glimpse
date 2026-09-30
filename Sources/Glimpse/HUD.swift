@@ -71,19 +71,30 @@ enum HUD {
 /// Big countdown number in the middle of the screen. Click it to cancel.
 @MainActor
 final class Countdown {
-    static func run(seconds: Int, on screen: NSScreen) async -> Bool {
+    /// Centred on `rect` (Cocoa global) if given, else on the screen.
+    static func run(seconds: Int, on screen: NSScreen, centeredOn rect: NSRect? = nil) async -> Bool {
         guard seconds > 0 else { return true }
-        let countdown = Countdown(screen: screen)
+        let countdown = Countdown(screen: screen, center: rect.map { NSPoint(x: $0.midX, y: $0.midY) })
+        active = countdown
+        defer { if active === countdown { active = nil } }
         return await countdown.start(seconds: seconds)
+    }
+
+    private static weak var active: Countdown?
+
+    /// Cancels a running countdown (its `run` returns false).
+    static func cancelActive() {
+        active?.cancelled = true
     }
 
     private let panel: NSPanel
     private let label = NSTextField(labelWithString: "")
     private var cancelled = false
 
-    private init(screen: NSScreen) {
+    private init(screen: NSScreen, center: NSPoint? = nil) {
         let size: CGFloat = 150
-        let frame = NSRect(x: screen.frame.midX - size / 2, y: screen.frame.midY - size / 2, width: size, height: size)
+        let c = center ?? NSPoint(x: screen.frame.midX, y: screen.frame.midY)
+        let frame = NSRect(x: c.x - size / 2, y: c.y - size / 2, width: size, height: size)
         panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .screenSaver
         panel.isOpaque = false

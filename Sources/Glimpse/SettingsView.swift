@@ -1,5 +1,6 @@
 import Combine
 import AppKit
+import AVFoundation
 import ServiceManagement
 import SwiftUI
 
@@ -46,12 +47,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 }
 
 private enum SettingsTab: CaseIterable {
-    case general, capture, quickAccess, shortcuts, agents, permissions
+    case general, capture, recording, quickAccess, shortcuts, agents, permissions
 
     var title: String {
         switch self {
         case .general: "General"
         case .capture: "Capture"
+        case .recording: "Recording"
         case .quickAccess: "Quick Access"
         case .shortcuts: "Shortcuts"
         case .agents: "Agents"
@@ -63,6 +65,7 @@ private enum SettingsTab: CaseIterable {
         switch self {
         case .general: "gearshape"
         case .capture: "camera.viewfinder"
+        case .recording: "record.circle"
         case .quickAccess: "rectangle.on.rectangle"
         case .shortcuts: "keyboard"
         case .agents: "sparkles"
@@ -75,10 +78,11 @@ private enum SettingsTab: CaseIterable {
         switch self {
         case .general: 640 + extraRows * 40
         case .capture: 340
+        case .recording: 640
         case .quickAccess: 270
-        case .shortcuts: 520
+        case .shortcuts: 560
         case .agents: 400
-        case .permissions: 200
+        case .permissions: 300
         }
     }
 }
@@ -117,6 +121,7 @@ private struct SettingsView: View {
                 switch selection.tab {
                 case .general: GeneralSettings()
                 case .capture: CaptureSettings()
+                case .recording: RecordingSettings()
                 case .quickAccess: OverlaySettings()
                 case .shortcuts: ShortcutSettings()
                 case .agents: AgentSettings()
@@ -273,6 +278,71 @@ private struct CaptureSettings: View {
     }
 }
 
+private struct RecordingSettings: View {
+    @ObservedObject private var prefs = Preferences.shared
+    @State private var cameras: [AVCaptureDevice] = []
+    @State private var microphones: [AVCaptureDevice] = []
+
+    var body: some View {
+        Form {
+            Section("Video") {
+                Picker("Frame rate", selection: $prefs.recordFrameRate) {
+                    Text("30 fps").tag(30)
+                    Text("60 fps").tag(60)
+                }
+                Toggle("Record at Retina resolution", isOn: $prefs.recordRetina)
+                Toggle("Show mouse pointer", isOn: $prefs.recordShowCursor)
+                if #available(macOS 15.0, *) {
+                    Toggle("Highlight clicks", isOn: $prefs.recordShowClicks)
+                }
+                Picker("Countdown", selection: $prefs.recordCountdown) {
+                    Text("None").tag(0)
+                    ForEach([3, 5, 10], id: \.self) { Text("\($0) seconds").tag($0) }
+                }
+            }
+            Section("Audio") {
+                Toggle("Record microphone", isOn: $prefs.recordMicrophone)
+                devicePicker("Microphone", selection: $prefs.microphoneID, devices: microphones)
+                    .disabled(!prefs.recordMicrophone)
+                Toggle("Record system audio", isOn: $prefs.recordSystemAudio)
+            }
+            Section {
+                Toggle("Show camera", isOn: $prefs.recordCamera)
+                devicePicker("Camera", selection: $prefs.cameraID, devices: cameras)
+                Picker("Shape", selection: $prefs.cameraShape) {
+                    ForEach(CameraShape.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Size", selection: $prefs.cameraSize) {
+                    ForEach(CameraSize.allCases) { Text($0.title).tag($0) }
+                }
+                Toggle("Mirror camera", isOn: $prefs.cameraMirror)
+            } header: {
+                Text("Camera")
+            } footer: {
+                Text("The camera bubble is part of the recording. Drag it anywhere, scroll to resize, right-click for more. Camera, microphone and system audio can also be switched on the control bar before you start.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            cameras = MediaDevices.cameras
+            microphones = MediaDevices.microphones
+        }
+    }
+
+    private func devicePicker(_ title: String, selection: Binding<String>, devices: [AVCaptureDevice]) -> some View {
+        Picker(title, selection: selection) {
+            Text("System Default").tag("")
+            // Keep a device that's unplugged selectable so the choice isn't silently lost.
+            if !selection.wrappedValue.isEmpty, !devices.contains(where: { $0.uniqueID == selection.wrappedValue }) {
+                Text("Unavailable Device").tag(selection.wrappedValue)
+            }
+            ForEach(devices, id: \.uniqueID) { Text($0.localizedName).tag($0.uniqueID) }
+        }
+    }
+}
+
 private struct OverlaySettings: View {
     @ObservedObject private var prefs = Preferences.shared
 
@@ -403,6 +473,8 @@ private struct ShortcutRecorder: NSViewRepresentable {
 private struct PermissionSettings: View {
     @State private var screen = ScreenCapture.hasPermission
     @State private var accessibility = AXIsProcessTrusted()
+    @State private var camera = MediaDevices.isAuthorized(.video)
+    @State private var microphone = MediaDevices.isAuthorized(.audio)
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -414,6 +486,12 @@ private struct PermissionSettings: View {
                 row("Accessibility", granted: accessibility, detail: "Only needed for auto-scroll in Scrolling Capture.") {
                     ScreenCapture.openAccessibilitySettings()
                 }
+                row("Camera", granted: camera, detail: "Only for the camera bubble in screen recordings.") {
+                    Task { camera = await MediaDevices.requestAccess(.video, explicit: true) }
+                }
+                row("Microphone", granted: microphone, detail: "Only for recording your voice with the screen.") {
+                    Task { microphone = await MediaDevices.requestAccess(.audio, explicit: true) }
+                }
             } footer: {
                 Text("After granting Screen Recording, macOS may ask you to quit and reopen Glimpse.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -423,6 +501,8 @@ private struct PermissionSettings: View {
         .onReceive(timer) { _ in
             screen = ScreenCapture.hasPermission
             accessibility = AXIsProcessTrusted()
+            camera = MediaDevices.isAuthorized(.video)
+            microphone = MediaDevices.isAuthorized(.audio)
         }
     }
 

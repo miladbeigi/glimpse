@@ -1,8 +1,10 @@
 import AppKit
+import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
+    private var recordingObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ImageExporter.cleanTemporaryFiles()
@@ -17,6 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
+        let recording = RecordingController.shared
+        recordingObserver = recording.$phase.combineLatest(recording.$elapsed.map { Int($0) }.removeDuplicates())
+            .receive(on: RunLoop.main)
+            .sink { [weak self] phase, seconds in self?.updateStatusItem(phase: phase, elapsed: Double(seconds)) }
 
         HotkeyManager.shared.handler = { action in CaptureCoordinator.shared.perform(action) }
         HotkeyManager.shared.install()
@@ -69,6 +75,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// While recording, the menu bar icon turns into a red dot with the elapsed time.
+    private func updateStatusItem(phase: RecordingController.Phase, elapsed: Double) {
+        guard let button = statusItem.button else { return }
+        let recording = phase == .recording || phase == .paused
+        if recording {
+            let symbol = phase == .paused ? "pause.circle.fill" : "record.circle.fill"
+            let config = NSImage.SymbolConfiguration(paletteColors: [.white, phase == .paused ? .systemOrange : .systemRed])
+            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Recording")?.withSymbolConfiguration(config)
+            image?.isTemplate = false
+            button.image = image
+            button.imagePosition = .imageLeading
+            button.title = " " + RecordingGeometry.formatDuration(elapsed)
+            button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            statusItem.length = NSStatusItem.variableLength
+        } else if statusItem.length != NSStatusItem.squareLength {
+            let image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Glimpse")
+            image?.isTemplate = true
+            button.image = image
+            button.title = ""
+            button.imagePosition = .imageOnly
+            statusItem.length = NSStatusItem.squareLength
+        }
+    }
+
     // MARK: Status menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -89,6 +119,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !ScreenCapture.hasPermission {
             let warn = item("Grant Screen Recording Permission…", #selector(openPermissions), symbol: "exclamationmark.triangle.fill")
             menu.addItem(warn)
+            menu.addItem(.separator())
+        }
+        let recorder = RecordingController.shared
+        if recorder.isRecording {
+            menu.addItem(item("Stop Recording", #selector(stopRecording), symbol: "stop.circle", hotkey: .recordScreen))
+            menu.addItem(item(recorder.phase == .paused ? "Resume Recording" : "Pause Recording", #selector(togglePauseRecording),
+                              symbol: recorder.phase == .paused ? "play.circle" : "pause.circle"))
+            menu.addItem(item("Discard Recording", #selector(discardRecording), symbol: "trash"))
             menu.addItem(.separator())
         }
         if let update = UpdateController.shared.availableUpdate {
@@ -117,6 +155,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(item("Capture Text", #selector(captureText), symbol: "text.viewfinder", hotkey: .captureText))
         menu.addItem(.separator())
+        if !recorder.isActive {
+            menu.addItem(item("Record Screen…", #selector(recordScreen), symbol: "record.circle", hotkey: .recordScreen))
+            menu.addItem(item("Record Full Screen", #selector(recordFullScreen), symbol: "inset.filled.rectangle.badge.record"))
+            menu.addItem(.separator())
+        }
         menu.addItem(item("Annotate Image…", #selector(annotateFile), symbol: "pencil.and.outline"))
         menu.addItem(item("Annotate from Clipboard", #selector(annotateClipboard), symbol: "doc.on.clipboard"))
         menu.addItem(item("Pin from Clipboard", #selector(pinClipboard), symbol: "pin"))
@@ -156,6 +199,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         afterMenu { CaptureCoordinator.shared.captureFullscreen(delay: s) }
     }
     @objc private func captureText() { afterMenu { CaptureCoordinator.shared.captureText() } }
+    @objc private func recordScreen() { afterMenu { RecordingController.shared.recordInteractively() } }
+    @objc private func recordFullScreen() {
+        afterMenu { RecordingController.shared.prepare(.fullScreen(NSScreen.withMouse)) }
+    }
+    @objc private func stopRecording() { RecordingController.shared.stop() }
+    @objc private func togglePauseRecording() { RecordingController.shared.togglePause() }
+    @objc private func discardRecording() { RecordingController.shared.discard() }
     @objc private func annotateFile() { EditorWindowController.openImageFile() }
     @objc private func annotateClipboard() { CaptureCoordinator.shared.annotateClipboard() }
     @objc private func pinClipboard() { CaptureCoordinator.shared.pinClipboard() }

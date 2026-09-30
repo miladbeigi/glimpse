@@ -58,6 +58,10 @@
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>Glimpse shows your camera in a bubble on screen recordings.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Glimpse records your voice with screen recordings.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
