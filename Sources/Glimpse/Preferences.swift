@@ -86,6 +86,8 @@ final class Preferences: ObservableObject {
     @Published var selfTimerSeconds: Int { didSet { defaults.set(selfTimerSeconds, forKey: Keys.selfTimer) } }
     /// Lets connected MCP clients (`Glimpse mcp`) take screenshots. Off until the user opts in.
     @Published var agentAccess: Bool { didSet { defaults.set(agentAccess, forKey: Keys.agentAccess) } }
+    /// Also lets them record the screen (never the microphone or camera). Off until the user opts in.
+    @Published var agentRecording: Bool { didSet { defaults.set(agentRecording, forKey: Keys.agentRecording) } }
 
     // Recording
     @Published var recordFrameRate: Int { didSet { defaults.set(recordFrameRate, forKey: Keys.recordFrameRate) } }
@@ -127,6 +129,7 @@ final class Preferences: ObservableObject {
         static let windowShadow = "windowShadow"
         static let selfTimer = "selfTimerSeconds"
         static let agentAccess = "agentAccess"
+        static let agentRecording = "agentRecording"
         static let shortcuts = "shortcuts"
         static let recordFrameRate = "recordFrameRate"
         static let recordRetina = "recordRetina"
@@ -175,6 +178,7 @@ final class Preferences: ObservableObject {
         showMagnifier = bool(Keys.showMagnifier, true)
         windowShadow = bool(Keys.windowShadow, true)
         agentAccess = bool(Keys.agentAccess, false)
+        agentRecording = bool(Keys.agentRecording, false)
         selfTimerSeconds = d.object(forKey: Keys.selfTimer) == nil ? 5 : d.integer(forKey: Keys.selfTimer)
         recordFrameRate = d.integer(forKey: Keys.recordFrameRate) == 60 ? 60 : 30
         recordRetina = bool(Keys.recordRetina, true)

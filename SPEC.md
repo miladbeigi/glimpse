@@ -20,7 +20,7 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 | OCR | Copy text from any area, QR code reading, on-device | ✅ (Vision framework) |
 | Automation | `glimpse://` URL commands, optionally with explicit regions | ✅ |
 | Recording | Area / fullscreen / window-area MP4, camera bubble, microphone + system audio, pause/resume, restart, countdown, cursor & click highlighting, trimming, GIF export | ✅ all except trimming & GIF |
-| AI agents | MCP server (`Glimpse mcp`): list windows/displays, screenshot window/screen/region, OCR | ✅ (opt-in) |
+| AI agents | MCP server (`Glimpse mcp`): list windows/displays, screenshot window/screen/region, OCR, screen recording | ✅ (opt-in; recording has its own opt-in) |
 | Background tool | Padding, wallpapers, presets | ❌ (v2) |
 | Cloud, History | — | ❌ |
 
@@ -138,7 +138,9 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
   (off/3/5/10 s), microphone on/off + device, system audio on/off, camera on/off + device, bubble shape, size,
   mirror.
 - Shortcuts: recorder per action (click, press combo; ⌫ clears; Esc cancels).
-- Agents: opt-in toggle for MCP access, copyable setup command for Claude Code and a JSON config for other clients.
+- Agents: opt-in toggle for MCP access, a second opt-in for screen recording, copyable setup command for Claude Code and a JSON config for other clients.
+  Agent recordings (start_recording / stop_recording / recording_status) never use the microphone or camera, show the
+  usual recording controls, stop after at most 10 minutes, go to a temporary folder or `save_path`, and return still frames.
 - Permissions: Screen Recording, Accessibility, Camera & Microphone status with buttons to open System Settings.
 
 ## 3. Architecture

@@ -81,7 +81,7 @@ private enum SettingsTab: CaseIterable {
         case .recording: 700
         case .quickAccess: 270
         case .shortcuts: 560
-        case .agents: 400
+        case .agents: 460
         case .permissions: 300
         }
     }
@@ -420,9 +420,13 @@ private struct AgentSettings: View {
         Form {
             Section {
                 Toggle("Allow AI agents to take screenshots", isOn: $prefs.agentAccess)
+                Toggle("Allow AI agents to record the screen", isOn: $prefs.agentRecording)
+                    .disabled(!prefs.agentAccess)
             } footer: {
-                Text("While this is on, agents you connect can list windows, take screenshots and read text from anything on screen.")
+                Text("While this is on, agents you connect can list windows, take screenshots and read text from anything on screen. "
+                    + "Recordings show Glimpse's recording controls, stop after at most 10 minutes, and never include the microphone or camera.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             Section("Connect an agent") {
@@ -430,7 +434,7 @@ private struct AgentSettings: View {
                 command("Other MCP clients (Claude Desktop, Cursor, …)", jsonConfig)
             }
             Section {
-                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region and read_text. Screenshots are also saved as full-resolution files.")
+                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region, read_text, start_recording, stop_recording and recording_status. Screenshots are also saved as full-resolution files.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }

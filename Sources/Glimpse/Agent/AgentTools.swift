@@ -1,10 +1,15 @@
 import AppKit
+import AVFoundation
 import UniformTypeIdentifiers
 
 /// The MCP tools Glimpse offers agents. Definitions are shared with the `Glimpse mcp` bridge; `AgentToolRunner`
 /// executes them inside the app.
 enum AgentTools {
     static let defaultMaxSize = 1568
+    /// Recording limits: agents must say how long, and can't record for more than ten minutes.
+    static let defaultRecordingSeconds = 60
+    static let maxRecordingSeconds = 600
+    static let defaultFrameCount = 4
 
     static func error(_ message: String) -> [String: Any] {
         ["content": [["type": "text", "text": message]], "isError": true]
@@ -78,6 +83,38 @@ enum AgentTools {
                 "annotations": ["readOnlyHint": true],
             ],
             [
+                "name": "start_recording",
+                "description": "Starts a screen recording (MP4, screen and optionally system audio; never the microphone or camera) "
+                    + "of a window (window_id, or app and/or title), a region (x, y, width, height) or a display (display, default 1). "
+                    + "The user sees Glimpse's recording controls and can stop it. It stops by itself after max_duration seconds. "
+                    + "Returns a recording id; call stop_recording to finish and get the file and frames from it. "
+                    + "A window is recorded as the part of the screen it covers, so keep it where it is. " + coordinates,
+                "inputSchema": schema(windowTarget, regionTarget, display, [
+                    "max_duration": ["type": "integer", "description": "Stop after this many seconds (default \(defaultRecordingSeconds), at most \(maxRecordingSeconds))."],
+                    "system_audio": ["type": "boolean", "description": "Also record the sound playing on the Mac (default false)."],
+                    "save_path": ["type": "string", "description": "Absolute .mp4 file or folder path for the recording. Defaults to a temporary folder."],
+                ]),
+                "annotations": ["readOnlyHint": false, "destructiveHint": false],
+            ],
+            [
+                "name": "stop_recording",
+                "description": "Stops the recording started with start_recording (or, if it already stopped at max_duration, returns it) "
+                    + "and returns the saved file's path and duration, plus still frames spread across the video so you can "
+                    + "check what it shows.",
+                "inputSchema": schema([
+                    "recording_id": ["type": "string", "description": "Id from start_recording (default: the current or last one)."],
+                    "frames": ["type": "integer", "description": "Still frames to return, 0–8 (default \(defaultFrameCount))."],
+                    "max_size": ["type": "integer", "description": "Longest edge of each frame in pixels (default 1024)."],
+                ]),
+                "annotations": ["readOnlyHint": false, "destructiveHint": false],
+            ],
+            [
+                "name": "recording_status",
+                "description": "Tells whether Glimpse is recording, and for an agent's recording its id, elapsed seconds and limit.",
+                "inputSchema": schema(),
+                "annotations": ["readOnlyHint": true],
+            ],
+            [
                 "name": "read_text",
                 "description": "Reads text (OCR, on-device) and QR/barcode contents from a window (window_id, or app and/or title), "
                     + "a region (x, y, width, height) or a whole display (display). Returns plain text.",
@@ -131,6 +168,9 @@ enum AgentToolRunner {
             case "screenshot_window": return try finish(try await window(args), args)
             case "screenshot_region": return try finish(try await region(args), args)
             case "read_text": return try await readText(args)
+            case "start_recording": return try await startRecording(args)
+            case "stop_recording": return try await stopRecording(args)
+            case "recording_status": return recordingStatus()
             default: return AgentTools.error("Unknown tool \(name).")
             }
         } catch let failure as Failure {
@@ -252,6 +292,111 @@ enum AgentToolRunner {
         }
         let text = await TextRecognizer.recognize(shot.image)
         return AgentTools.text(text.isEmpty ? "No text found." : text)
+    }
+
+    // MARK: Recording
+
+    private static func recordingAllowed() throws {
+        guard Preferences.shared.agentRecording else {
+            throw Failure(message: "Screen recording by agents is turned off. Turn on \"Allow AI agents to record the screen\" "
+                + "in Glimpse Settings › Agents.")
+        }
+    }
+
+    /// The part of one display to record, in that display's local top-left points.
+    private static func recordingTarget(_ args: [String: Any]) throws -> RecordingTarget {
+        var global: CGRect?
+        if args["window_id"] != nil || args["app"] != nil || args["title"] != nil {
+            guard let w = try findWindow(args) else { throw Failure(message: "Pass window_id, or app and/or title.") }
+            global = w.frame
+        } else if let rect = regionRect(args) {
+            guard rect.width >= 16, rect.height >= 16 else { throw Failure(message: "The region must be at least 16 × 16 points.") }
+            global = rect
+        }
+        guard let global else {
+            let number = int(args["display"]) ?? 1
+            let screens = NSScreen.screens
+            guard screens.indices.contains(number - 1) else {
+                throw Failure(message: "No display \(number); there \(screens.count == 1 ? "is 1 display" : "are \(screens.count) displays").")
+            }
+            return .fullScreen(screens[number - 1])
+        }
+        let best = NSScreen.screens.max { a, b in area(a.cgFrame.intersection(global)) < area(b.cgFrame.intersection(global)) }
+        guard let screen = best, area(screen.cgFrame.intersection(global)) > 0 else {
+            throw Failure(message: "\(json(rectJSON(global))) is not on any display. Use list_displays for display frames.")
+        }
+        let local = screen.cgFrame.intersection(global).offsetBy(dx: -screen.cgFrame.minX, dy: -screen.cgFrame.minY).integral
+        return RecordingTarget(screen: screen, rect: local)
+    }
+
+    private static func startRecording(_ args: [String: Any]) async throws -> [String: Any] {
+        try recordingAllowed()
+        let target = try recordingTarget(args)
+        let seconds = min(max(int(args["max_duration"]) ?? AgentTools.defaultRecordingSeconds, 1), AgentTools.maxRecordingSeconds)
+        let destination = try outputURL(string(args["save_path"]), ext: "mp4")
+        let controller = RecordingController.shared
+        let id = try await controller.startForAgent(target, systemAudio: (args["system_audio"] as? Bool) ?? false,
+                                                     maxDuration: Double(seconds), destination: destination)
+        let frame = target.rect.offsetBy(dx: target.screen.cgFrame.minX, dy: target.screen.cgFrame.minY)
+        return AgentTools.text(json(["recording_id": id, "recording": true, "frame": rectJSON(frame),
+                                     "max_duration": seconds, "path": destination.path]))
+    }
+
+    private static func stopRecording(_ args: [String: Any]) async throws -> [String: Any] {
+        try recordingAllowed()
+        let result: AgentRecordingResult
+        do {
+            result = try await RecordingController.shared.stopForAgent(id: string(args["recording_id"]))
+        } catch let error as AgentRecordingError {
+            throw Failure(message: error.message)
+        }
+        let count = min(max(int(args["frames"]) ?? AgentTools.defaultFrameCount, 0), 8)
+        let maxSize = int(args["max_size"]) ?? 1024
+        let attributes = try? FileManager.default.attributesOfItem(atPath: result.url.path)
+        var summary: [String: Any] = [
+            "recording_id": result.id,
+            "path": result.url.path,
+            "duration": rounded(CGFloat(result.duration)),
+            "file_bytes": (attributes?[.size] as? NSNumber)?.intValue ?? 0,
+        ]
+        let asset = AVURLAsset(url: result.url)
+        if let track = try? await asset.loadTracks(withMediaType: .video).first, let size = try? await track.load(.naturalSize) {
+            summary["video_size"] = ["width": Int(size.width), "height": Int(size.height)]
+        }
+        var content: [[String: Any]] = []
+        var times: [NSDecimalNumber] = []
+        if count > 0 {
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            if maxSize > 0 { generator.maximumSize = CGSize(width: maxSize, height: maxSize) }
+            let tolerance = CMTime(seconds: 0.1, preferredTimescale: 600)
+            generator.requestedTimeToleranceBefore = tolerance
+            generator.requestedTimeToleranceAfter = tolerance
+            for i in 0..<count {
+                // Evenly spread, away from the very first and last frame.
+                let t = result.duration * (Double(i) + 0.5) / Double(count)
+                guard let image = try? await generator.image(at: CMTime(seconds: t, preferredTimescale: 600)).image,
+                      let data = encode(image, jpeg: true) else { continue }
+                content.append(["type": "image", "data": data.base64EncodedString(), "mimeType": "image/jpeg"])
+                times.append(NSDecimalNumber(string: String(format: "%.1f", t)))
+            }
+        }
+        summary["frame_times"] = times
+        content.append(["type": "text", "text": json(summary)])
+        return ["content": content]
+    }
+
+    private static func recordingStatus() -> [String: Any] {
+        let controller = RecordingController.shared
+        var status: [String: Any] = ["recording": controller.isRecording, "paused": controller.phase == .paused]
+        if let id = controller.agentRecordingID {
+            status["recording_id"] = id
+            status["elapsed"] = rounded(CGFloat(controller.elapsed))
+            if let limit = controller.agentMaxDuration { status["max_duration"] = Int(limit) }
+        } else if controller.isActive {
+            status["started_by"] = "user"
+        }
+        return AgentTools.text(json(status))
     }
 
     // MARK: Output
