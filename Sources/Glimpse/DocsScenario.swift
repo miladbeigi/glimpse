@@ -7,6 +7,8 @@ import AppKit
 ///   open -n build/debug/Glimpse.app --env GLIMPSE_DOCS_DIR="$PWD/docs" --env GLIMPSE_DOCS_SAMPLE=/path/sample.png
 ///
 /// `--env GLIMPSE_DOCS_ONLY=recording` renders just `recording.png` and `settings.png`.
+/// `--env GLIMPSE_DOCS_AVATAR=/path/face.png` puts that picture in the camera bubble (use an AI-generated face,
+/// not a real person); without it the bubble shows a drawn silhouette.
 ///
 /// Windows are captured with ScreenCaptureKit (needs Screen Recording), so they look exactly like the app.
 @MainActor
@@ -129,9 +131,10 @@ enum DocsScenario {
         }
     }
 
-    /// The recording control bar and a camera bubble (a placeholder avatar, not a real camera) over the fake desktop.
+    /// The recording control bar and a camera bubble (a still picture, not a real camera) over the fake desktop.
     private static func recording(sample: CGImage, scale: CGFloat, out: URL) async {
-        guard let screen = NSScreen.main, let avatar = avatar(size: CGSize(width: 440, height: 440)) else { return }
+        let face = ProcessInfo.processInfo.environment["GLIMPSE_DOCS_AVATAR"].flatMap { ImageUtil.load(url: URL(fileURLWithPath: $0))?.0 }
+        guard let screen = NSScreen.main, let avatar = face ?? avatar(size: CGSize(width: 440, height: 440)) else { return }
         let bubble = CameraBubble.debugPanel(image: avatar, width: 190)
         bubble.setFrameOrigin(NSPoint(x: screen.frame.minX + 40, y: screen.frame.minY + 40))
         bubble.orderFrontRegardless()

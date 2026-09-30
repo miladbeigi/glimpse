@@ -265,7 +265,8 @@ also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
   ```
 
   Add `--env GLIMPSE_DOCS_ONLY=recording` to render only `recording.png` and `settings.png`. The camera bubble
-  shows a placeholder avatar, not your camera.
+  shows `--env GLIMPSE_DOCS_AVATAR=/path/face.png` (an AI-generated face, not a real person) or a drawn
+  silhouette, never your camera.
 
 ## Releasing
 
