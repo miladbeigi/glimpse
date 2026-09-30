@@ -458,3 +458,30 @@ final class RecordingController: ObservableObject {
         escMonitors.removeAll()
     }
 }
+
+#if DEBUG
+extension RecordingController {
+    /// Shows the control bar as if `seconds` had been recorded with the mic on (README screenshots). Returns the
+    /// bar's window.
+    func debugShowRecordingControls(on screen: NSScreen, seconds: Double) -> NSWindow? {
+        let target = RecordingTarget.fullScreen(screen)
+        self.target = target
+        cameraOn = true
+        micOn = true
+        micLevel = 0.62
+        elapsed = seconds
+        phase = .recording
+        let chrome = RecordingChrome(target: target, controller: self)
+        chrome.show()
+        self.chrome = chrome
+        return chrome.controlWindow
+    }
+
+    func debugHideControls() {
+        chrome?.close()
+        chrome = nil
+        target = nil
+        phase = .idle
+    }
+}
+#endif

@@ -75,6 +75,8 @@ final class RecordingChrome {
         panel.setFrame(NSRect(x: old.midX - size.width / 2, y: old.minY, width: size.width, height: size.height), display: true)
     }
 
+    var controlWindow: NSWindow? { controlPanel }
+
     func setControlsHidden(_ hidden: Bool) {
         if hidden { controlPanel?.orderOut(nil) } else { controlPanel?.orderFrontRegardless() }
     }

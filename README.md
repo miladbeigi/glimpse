@@ -49,6 +49,8 @@
   or drag the file into any app. Files are saved to the screenshots folder as
   `Glimpse Recording 2026-09-29 at 14.03.22.mp4`.
 
+![Recording with the camera bubble and control bar](docs/recording.png)
+
 ### Quick Access Overlay
 
 Every capture slides into a corner of the screen. Hover it for **Copy** and **Save**, or use the corner
@@ -261,6 +263,9 @@ also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
   scripts/build.sh --debug
   open -n build/debug/Glimpse.app --env GLIMPSE_DOCS_DIR="$PWD/docs" --env GLIMPSE_DOCS_SAMPLE=/path/to/sample.png
   ```
+
+  Add `--env GLIMPSE_DOCS_ONLY=recording` to render only `recording.png` and `settings.png`. The camera bubble
+  shows a placeholder avatar, not your camera.
 
 ## Releasing
 

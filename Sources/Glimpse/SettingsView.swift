@@ -78,7 +78,7 @@ private enum SettingsTab: CaseIterable {
         switch self {
         case .general: 640 + extraRows * 40
         case .capture: 340
-        case .recording: 640
+        case .recording: 700
         case .quickAccess: 270
         case .shortcuts: 560
         case .agents: 400
@@ -319,7 +319,7 @@ private struct RecordingSettings: View {
             } header: {
                 Text("Camera")
             } footer: {
-                Text("The camera bubble is part of the recording. Drag it anywhere, scroll to resize, right-click for more. Camera, microphone and system audio can also be switched on the control bar before you start.")
+                Text("Drag the bubble anywhere, scroll to resize it, right-click for more.")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

@@ -211,7 +211,7 @@ final class CameraBubblePanel: NSPanel {
 private final class CameraBubbleView: NSView {
     weak var bubble: CameraBubble?
     private let preview: AVCaptureVideoPreviewLayer
-    private let placeholder = CALayer()
+    fileprivate let placeholder = CALayer()
     private let ring = CALayer()
     private var dragOffset: NSPoint?
 
@@ -288,3 +288,23 @@ private final class CameraBubbleView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { bubble?.menu() }
 }
+
+#if DEBUG
+extension CameraBubble {
+    /// A bubble showing `image` instead of a camera (README screenshots).
+    static func debugPanel(image: CGImage, width: CGFloat, shape: CameraShape = .circle) -> NSPanel {
+        let height = shape == .circle ? width : (width * 3 / 4).rounded()
+        let view = CameraBubbleView(preview: AVCaptureVideoPreviewLayer())
+        view.debugShow(image)
+        view.cornerRadius = shape == .circle ? width / 2 : min(width, height) * 0.14
+        return CameraBubblePanel(contentRect: NSRect(x: 0, y: 0, width: width, height: height), view: view)
+    }
+}
+
+extension CameraBubbleView {
+    fileprivate func debugShow(_ image: CGImage) {
+        placeholder.contents = image
+        placeholder.contentsGravity = .resizeAspectFill
+    }
+}
+#endif
