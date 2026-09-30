@@ -76,8 +76,8 @@ keys, or lock it so clicks pass through.
 ### And
 
 - Every shortcut is configurable, and captures can be scripted with `glimpse://` URLs.
-- AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots and read text through Glimpse's
-  [MCP server](#ai-agents-mcp).
+- AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots, read text and record the screen
+  through Glimpse's [MCP server](#ai-agents-mcp).
 - Settings for what happens after a capture (overlay, clipboard, auto-save, open editor), save folder,
   PNG or JPEG, overlay position and size, recording (frame rate, resolution, cursor, countdown, audio and
   camera devices, bubble shape and size), and launch at login.
@@ -217,11 +217,21 @@ Other clients take the same command in their MCP config:
 | `screenshot_screen` | A whole display |
 | `screenshot_region` | A rectangle, in the same screen coordinates as `list_windows` |
 | `read_text` | On-device OCR (and QR codes) of a window, region or display |
+| `start_recording` | Records a window, region or display to MP4 (optionally with system audio), stopping by itself after `max_duration` seconds |
+| `stop_recording` | Stops the recording and returns the file path, duration and still frames from it |
+| `recording_status` | Whether a recording is running, its id, elapsed time and limit |
 
 Screenshots come back inline, scaled to `max_size` (1568 px on the long edge by default, `0` for full size), and
 are also saved at full resolution (`save_path`, or a temporary folder); the result includes the file path and the
 captured frame for mapping pixels to screen points. `format: "jpeg"` makes them smaller and `include_image: false`
 returns only the path.
+
+Recording has its own switch, **Settings › Agents › Allow AI agents to record the screen**, off by default. Agent
+recordings never include the microphone or camera, show Glimpse's usual recording controls and menu bar timer (so
+you can see and stop them), and stop after `max_duration` (60 s by default, 10 minutes at most). They're saved to
+`save_path` or a temporary folder, not the screenshots folder. `stop_recording` returns `frames` stills (4 by
+default) spread across the video so the agent can see what it recorded. If you're already recording,
+`start_recording` fails rather than taking over.
 
 `Glimpse mcp` does no capturing itself: it forwards calls to the Glimpse app (launching it if needed) over a
 socket only your user can open, so captures use Glimpse's Screen Recording permission, not your terminal's.

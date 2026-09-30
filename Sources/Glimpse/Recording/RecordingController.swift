@@ -54,6 +54,11 @@ final class RecordingController: ObservableObject {
     private var generation = 0
     /// Stop after this many recorded seconds (pauses don't count).
     private var maxDuration: Double?
+    /// The recording an MCP agent started, and the file it goes to.
+    fileprivate var agentRecording: (id: String, destination: URL)?
+    fileprivate var agentResults: [String: Result<AgentRecordingResult, Error>] = [:]
+    fileprivate var lastAgentResultID: String?
+    fileprivate var agentWaiters: [String: [CheckedContinuation<Result<AgentRecordingResult, Error>, Never>]] = [:]
 
     var isActive: Bool { phase != .idle }
     var isRecording: Bool { phase == .recording || phase == .paused }
@@ -298,6 +303,7 @@ final class RecordingController: ObservableObject {
         guard isRecording, let recorder, let tempURL else { return }
         phase = .saving
         stopTimers()
+        let agent = agentRecording
         Task {
             let duration: Double
             do {
@@ -312,6 +318,14 @@ final class RecordingController: ObservableObject {
             }
             bubble?.hide()
             chrome?.hideAreaBorder()
+            if let agent {
+                // An agent's recording goes where it asked, and back to the agent rather than to Quick Access.
+                let url = await finalize(tempURL, to: agent.destination)
+                completeAgentRecording(agent.id, .success(AgentRecordingResult(id: agent.id, url: url, duration: duration)))
+                tearDown()
+                HUD.show("Agent recording saved", symbol: "record.circle")
+                return
+            }
             let url = await finalize(tempURL)
             tearDown()
             deliver(url, duration: duration)
@@ -365,7 +379,7 @@ final class RecordingController: ObservableObject {
 
     /// Mixes the audio into one track and moves the file into the save folder. Never loses the recording: if the
     /// folder can't be written, it goes to Movies, and failing that stays where it is.
-    private func finalize(_ url: URL) async -> URL {
+    private func finalize(_ url: URL, to destination: URL? = nil) async -> URL {
         var file = url
         if let tracks = try? await AVURLAsset(url: url).loadTracks(withMediaType: .audio), tracks.count > 1 {
             let mixed = url.deletingPathExtension().appendingPathExtension("mixed.mp4")
@@ -377,6 +391,17 @@ final class RecordingController: ObservableObject {
                 // Separate tracks still play in QuickTime; better than losing the recording.
                 NSLog("Glimpse: could not mix audio tracks: \(error)")
                 try? FileManager.default.removeItem(at: mixed)
+            }
+        }
+        if let destination {
+            do {
+                try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? FileManager.default.removeItem(at: destination)
+                try FileManager.default.moveItem(at: file, to: destination)
+                return destination
+            } catch {
+                NSLog("Glimpse: could not save the recording to \(destination.path): \(error)")
+                return file
             }
         }
         let name = ImageExporter.filename(for: startDate).replacingOccurrences(of: "Glimpse ", with: "Glimpse Recording ")
@@ -429,6 +454,10 @@ final class RecordingController: ObservableObject {
         target = nil
         generation += 1
         phase = .idle
+        // Ended any other way (discarded, failed to start, recording failed): tell the agent waiting on it.
+        if let agent = agentRecording {
+            completeAgentRecording(agent.id, .failure(AgentRecordingError("The recording \(agent.id) was discarded or failed.")))
+        }
     }
 
     private func ensureScreenPermission() -> Bool {
@@ -456,6 +485,71 @@ final class RecordingController: ObservableObject {
     private func removeEscapeMonitors() {
         escMonitors.forEach(NSEvent.removeMonitor)
         escMonitors.removeAll()
+    }
+}
+
+// MARK: - Agents (MCP)
+
+struct AgentRecordingResult {
+    let id: String
+    let url: URL
+    let duration: Double
+}
+
+struct AgentRecordingError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+extension RecordingController {
+    /// The recording an agent is running (it's shown with the usual control bar, so the user can see and stop it).
+    var agentRecordingID: String? { agentRecording?.id }
+    var agentMaxDuration: Double? { agentRecording == nil ? nil : maxDuration }
+
+    /// Starts recording `target` straight away, with no camera or microphone, stopping by itself after `maxDuration`
+    /// seconds. Returns once it's recording.
+    func startForAgent(_ target: RecordingTarget, systemAudio: Bool, maxDuration: Double, destination: URL) async throws -> String {
+        guard phase == .idle else {
+            throw AgentRecordingError(agentRecording != nil
+                ? "A recording (\(agentRecording!.id)) is already running. Stop it with stop_recording first."
+                : "Glimpse is busy with another recording or capture. Try again when it's done.")
+        }
+        let id = "rec-" + UUID().uuidString.prefix(8).lowercased()
+        agentRecording = (id, destination)
+        prepare(target, overrides: RecordingOverrides(camera: false, microphone: false, systemAudio: systemAudio,
+                                                      countdown: 0, duration: maxDuration), startImmediately: true)
+        for _ in 0..<200 {
+            if phase == .recording, agentRecording?.id == id { return id }
+            if phase == .idle { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        if phase != .idle, agentRecording?.id == id, !isRecording { discard(confirm: false) }
+        if agentRecording?.id == id { agentRecording = nil }
+        throw AgentRecordingError("The recording didn't start. Check that Glimpse has Screen Recording permission.")
+    }
+
+    /// Stops the agent's recording (or returns it if it already stopped by itself) once the file is saved.
+    func stopForAgent(id: String?) async throws -> AgentRecordingResult {
+        if let id, let done = agentResults[id] { return try done.get() }
+        guard let current = agentRecording else {
+            if let id { throw AgentRecordingError("No recording with id \(id).") }
+            if let last = lastAgentResultID, let done = agentResults[last] { return try done.get() }
+            throw AgentRecordingError("No recording is running. Start one with start_recording.")
+        }
+        if let id, id != current.id { throw AgentRecordingError("No recording with id \(id); the running one is \(current.id).") }
+        let result = await withCheckedContinuation { (cont: CheckedContinuation<Result<AgentRecordingResult, Error>, Never>) in
+            agentWaiters[current.id, default: []].append(cont)
+            if isRecording { stop() }
+        }
+        return try result.get()
+    }
+
+    fileprivate func completeAgentRecording(_ id: String, _ result: Result<AgentRecordingResult, Error>) {
+        agentResults[id] = result
+        lastAgentResultID = id
+        if agentRecording?.id == id { agentRecording = nil }
+        for waiter in agentWaiters.removeValue(forKey: id) ?? [] { waiter.resume(returning: result) }
     }
 }
 
