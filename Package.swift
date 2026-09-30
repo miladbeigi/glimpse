@@ -10,6 +10,8 @@ let package = Package(
             path: "Sources/Glimpse",
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreMedia"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("Vision"),
                 .linkedFramework("ServiceManagement"),

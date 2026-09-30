@@ -238,7 +238,7 @@ final class ScrollingCaptureSession {
     }
 }
 
-private final class DashedBorderView: NSView {
+final class DashedBorderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(rect: bounds.insetBy(dx: 1.5, dy: 1.5))
         path.lineWidth = 2

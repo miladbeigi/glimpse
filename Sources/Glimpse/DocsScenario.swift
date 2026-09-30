@@ -6,6 +6,10 @@ import AppKit
 ///   scripts/build.sh --debug
 ///   open -n build/debug/Glimpse.app --env GLIMPSE_DOCS_DIR="$PWD/docs" --env GLIMPSE_DOCS_SAMPLE=/path/sample.png
 ///
+/// `--env GLIMPSE_DOCS_ONLY=recording` renders just `recording.png` and `settings.png`.
+/// `--env GLIMPSE_DOCS_AVATAR=/path/face.png` puts that picture in the camera bubble (use an AI-generated face,
+/// not a real person); without it the bubble shows a drawn silhouette.
+///
 /// Windows are captured with ScreenCaptureKit (needs Screen Recording), so they look exactly like the app.
 @MainActor
 enum DocsScenario {
@@ -16,7 +20,13 @@ enum DocsScenario {
         let out = URL(fileURLWithPath: dir)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         Task { @MainActor in
-            await run(sample: sample, scale: scale, out: out)
+            if env["GLIMPSE_DOCS_ONLY"] == "recording" {
+                await recording(sample: sample, scale: scale, out: out)
+                await settings(out: out)
+            } else {
+                await run(sample: sample, scale: scale, out: out)
+            }
+            NSLog("Glimpse docs rendered to \(out.path)")
             NSApp.terminate(nil)
         }
         return true
@@ -94,12 +104,7 @@ enum DocsScenario {
         }
 
         // 4. Settings.
-        SettingsWindowController.show()
-        await sleep(1)
-        if let w = SettingsWindowController.shared?.window {
-            await captureWindow(w, to: out.appendingPathComponent("settings.png"))
-            w.close()
-        }
+        await settings(out: out)
 
         // 5. Pinned screenshot over the fake desktop.
         PinWindowController.pin(image: chart, scale: scale)
@@ -110,7 +115,92 @@ enum DocsScenario {
             try? ImageExporter.write(composite, scale: 1, to: out.appendingPathComponent("pin.png"))
             pin.orderOut(nil)
         }
-        NSLog("Glimpse docs rendered to \(out.path)")
+
+        // 6. Screen recording: control bar and camera bubble.
+        await recording(sample: sample, scale: scale, out: out)
+    }
+
+    private static func settings(out: URL) async {
+        SettingsWindowController.show(tab: "recording")
+        await sleep(1)
+        if let w = SettingsWindowController.shared?.window {
+            w.makeFirstResponder(nil) // no focus ring on the first control
+            await sleep(0.3)
+            await captureWindow(w, to: out.appendingPathComponent("settings.png"))
+            w.close()
+        }
+    }
+
+    /// The recording control bar and a camera bubble (a still picture, not a real camera) over the fake desktop.
+    private static func recording(sample: CGImage, scale: CGFloat, out: URL) async {
+        let face = ProcessInfo.processInfo.environment["GLIMPSE_DOCS_AVATAR"].flatMap { ImageUtil.load(url: URL(fileURLWithPath: $0))?.0 }
+        guard let screen = NSScreen.main, let avatar = face ?? avatar(size: CGSize(width: 440, height: 440)) else { return }
+        let bubble = CameraBubble.debugPanel(image: avatar, width: 190)
+        bubble.setFrameOrigin(NSPoint(x: screen.frame.minX + 40, y: screen.frame.minY + 40))
+        bubble.orderFrontRegardless()
+        let bar = RecordingController.shared.debugShowRecordingControls(on: screen, seconds: 83)
+        await sleep(1)
+        let bubbleShot = try? await ScreenCapture.captureWindow(CGWindowID(bubble.windowNumber)).0
+        var barShot: CGImage?
+        if let bar { barShot = try? await ScreenCapture.captureWindow(CGWindowID(bar.windowNumber)).0 }
+        RecordingController.shared.debugHideControls()
+        bubble.orderOut(nil)
+        guard let bubbleShot, let barShot, let composite = recordingComposite(sample: sample, bubble: bubbleShot, bar: barShot)
+        else {
+            NSLog("Glimpse docs: could not capture the recording UI")
+            return
+        }
+        try? ImageExporter.write(composite, scale: 1, to: out.appendingPathComponent("recording.png"))
+    }
+
+    /// A neutral stand-in for a webcam picture: a silhouette on a warm gradient.
+    private static func avatar(size: CGSize) -> CGImage? {
+        guard let ctx = context(size) else { return nil }
+        let colors = [CGColor(srgbRed: 0.98, green: 0.80, blue: 0.62, alpha: 1),
+                      CGColor(srgbRed: 0.93, green: 0.55, blue: 0.52, alpha: 1)] as CFArray
+        let gradient = CGGradient(colorsSpace: ImageUtil.sRGB, colors: colors, locations: [0, 1])!
+        ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: size.height), end: CGPoint(x: size.width, y: 0), options: [])
+        ctx.setFillColor(CGColor(gray: 1, alpha: 0.9))
+        let w = size.width
+        ctx.fillEllipse(in: CGRect(x: w * 0.34, y: w * 0.44, width: w * 0.32, height: w * 0.36)) // head
+        ctx.fillEllipse(in: CGRect(x: w * 0.14, y: -w * 0.30, width: w * 0.72, height: w * 0.66)) // shoulders
+        return ctx.makeImage()
+    }
+
+    private static func recordingComposite(sample: CGImage, bubble: CGImage, bar: CGImage) -> CGImage? {
+        let size = CGSize(width: 1100, height: 700)
+        guard let ctx = context(size) else { return nil }
+        drawWallpaper(ctx, size)
+        let windowScale: CGFloat = 0.72
+        let origin = CGPoint(x: 90, y: 56)
+        drawWindow(sample, at: origin, scale: windowScale, in: ctx, canvasHeight: size.height)
+        // The recorded area: a dashed border around the window.
+        let w = CGFloat(sample.width) * windowScale, h = CGFloat(sample.height) * windowScale
+        let area = CGRect(x: origin.x, y: size.height - origin.y - h, width: w, height: h).insetBy(dx: -6, dy: -6)
+        ctx.saveGState()
+        ctx.setLineWidth(2)
+        ctx.setStrokeColor(CGColor(gray: 0, alpha: 0.5))
+        ctx.stroke(area)
+        ctx.setLineDash(phase: 0, lengths: [6, 4])
+        ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        ctx.stroke(area)
+        ctx.restoreGState()
+        // Bubble in the area's bottom-left corner, bar centred below it. Captures are 2× on Retina.
+        func draw(_ img: CGImage, at p: CGPoint, scale: CGFloat, blur: CGFloat) {
+            let r = CGRect(x: p.x, y: p.y, width: CGFloat(img.width) * scale, height: CGFloat(img.height) * scale)
+            ctx.saveGState()
+            ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: blur, color: CGColor(gray: 0, alpha: 0.45))
+            ctx.interpolationQuality = .high
+            ctx.draw(img, in: r)
+            ctx.restoreGState()
+        }
+        let bubbleScale = 190 / CGFloat(bubble.width)
+        draw(bubble, at: CGPoint(x: area.minX + 28, y: area.minY + 28), scale: bubbleScale, blur: 26)
+        let barScale = bubbleScale // same backing scale
+        let barWidth = CGFloat(bar.width) * barScale
+        draw(bar, at: CGPoint(x: area.midX - barWidth / 2, y: area.minY - CGFloat(bar.height) * barScale - 16),
+             scale: barScale, blur: 20)
+        return ctx.makeImage()
     }
 
     private static func captureWindow(_ window: NSWindow, to url: URL) async {

@@ -24,18 +24,21 @@ final class SelectionController {
     private var continuation: CheckedContinuation<SelectionResult?, Never>?
     fileprivate var mode: SelectionMode
     fileprivate let allowModeToggle: Bool
+    /// A click without dragging selects the whole screen (recording).
+    fileprivate let clickSelectsScreen: Bool
     fileprivate let windowList: [WindowInfo]
     private var keyMonitor: Any?
 
-    private init(mode: SelectionMode, allowModeToggle: Bool, windowList: [WindowInfo]) {
+    private init(mode: SelectionMode, allowModeToggle: Bool, clickSelectsScreen: Bool = false, windowList: [WindowInfo]) {
         self.mode = mode
         self.allowModeToggle = allowModeToggle
+        self.clickSelectsScreen = clickSelectsScreen
         self.windowList = windowList
     }
 
     private static var active: SelectionController?
 
-    static func select(mode: SelectionMode, allowModeToggle: Bool = true) async -> SelectionResult? {
+    static func select(mode: SelectionMode, allowModeToggle: Bool = true, clickSelectsScreen: Bool = false) async -> SelectionResult? {
         guard active == nil else { return nil }
         let windowList = ScreenCapture.onScreenWindows()
 
@@ -52,7 +55,8 @@ final class SelectionController {
             return nil
         }
 
-        let controller = SelectionController(mode: mode, allowModeToggle: allowModeToggle, windowList: windowList)
+        let controller = SelectionController(mode: mode, allowModeToggle: allowModeToggle,
+                                             clickSelectsScreen: clickSelectsScreen, windowList: windowList)
         active = controller
         let result = await withCheckedContinuation { (cont: CheckedContinuation<SelectionResult?, Never>) in
             controller.continuation = cont
@@ -264,6 +268,10 @@ final class SelectionView: NSView {
         }
         defer { dragStart = nil }
         guard let sel = selection?.integral.intersection(bounds), sel.width >= 4, sel.height >= 4 else {
+            if controller.clickSelectsScreen {
+                controller.finish(SelectionResult(screen: screen, rect: bounds, frozen: frozen, scale: scale, windowID: nil))
+                return
+            }
             selection = nil
             needsDisplay = true
             return
@@ -316,7 +324,8 @@ final class SelectionView: NSView {
             if prefs.showMagnifier { drawMagnifier(at: m, ctx: ctx) }
         }
         if selection == nil && dragStart == nil {
-            drawHint("Drag to select an area" + (controller?.allowModeToggle == true ? " · Space for window" : "") + " · Esc to cancel", ctx: ctx)
+            let click = controller?.clickSelectsScreen == true ? " · Click for full screen" : ""
+            drawHint("Drag to select an area" + click + (controller?.allowModeToggle == true ? " · Space for window" : "") + " · Esc to cancel", ctx: ctx)
         }
     }
 

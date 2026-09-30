@@ -5,20 +5,26 @@ import AppKit
 final class QuickAccessManager {
     static let shared = QuickAccessManager()
 
-    private var panels: [QuickAccessPanel] = [] // newest first
+    private var panels: [QuickAccessStackPanel] = [] // newest first
     private(set) var recentlyClosed: Capture?
     private let spacing: CGFloat = 12
     private let margin: CGFloat = 20
     private let maxItems = 6
 
     func show(_ capture: Capture) {
-        if let existing = panels.first(where: { $0.capture.id == capture.id }) {
+        if let existing = panels.first(where: { ($0 as? QuickAccessPanel)?.capture.id == capture.id }) as? QuickAccessPanel {
             existing.refresh()
             layout(animated: true)
             return
         }
-        let screen = NSScreen.withMouse
-        let panel = QuickAccessPanel(capture: capture, manager: self, screen: screen)
+        add(QuickAccessPanel(capture: capture, manager: self, screen: NSScreen.withMouse))
+    }
+
+    func show(_ recording: Recording) {
+        add(RecordingPanel(recording: recording, manager: self, screen: NSScreen.withMouse))
+    }
+
+    private func add(_ panel: QuickAccessStackPanel) {
         panels.insert(panel, at: 0)
         while panels.count > maxItems, let last = panels.last {
             close(last, remember: false)
@@ -26,10 +32,10 @@ final class QuickAccessManager {
         layout(animated: true, newPanel: panel)
     }
 
-    func close(_ panel: QuickAccessPanel, remember: Bool = true) {
+    func close(_ panel: QuickAccessStackPanel, remember: Bool = true) {
         guard let index = panels.firstIndex(where: { $0 === panel }) else { return }
         panels.remove(at: index)
-        if remember { recentlyClosed = panel.capture }
+        if remember, let capture = (panel as? QuickAccessPanel)?.capture { recentlyClosed = capture }
         panel.dismiss()
         layout(animated: true)
     }
@@ -47,7 +53,7 @@ final class QuickAccessManager {
         show(capture)
     }
 
-    private func layout(animated: Bool, newPanel: QuickAccessPanel? = nil) {
+    private func layout(animated: Bool, newPanel: QuickAccessStackPanel? = nil) {
         let corner = Preferences.shared.overlayCorner
         var offsets: [CGDirectDisplayID: CGFloat] = [:]
         for panel in panels { // newest nearest the corner
@@ -139,19 +145,13 @@ final class QuickAccessManager {
     }
 }
 
-final class QuickAccessPanel: NSPanel {
-    let capture: Capture
+/// A floating item in the Quick Access stack (a screenshot or a recording).
+class QuickAccessStackPanel: NSPanel {
     let targetScreen: NSScreen
-    private weak var manager: QuickAccessManager?
-    private var thumbView: QuickAccessView!
-    private var closeTimer: Timer?
 
     @MainActor
-    init(capture: Capture, manager: QuickAccessManager, screen: NSScreen) {
-        self.capture = capture
-        self.manager = manager
-        self.targetScreen = screen
-        let size = QuickAccessPanel.size(for: capture)
+    init(size: NSSize, screen: NSScreen) {
+        targetScreen = screen
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         isFloatingPanel = true
@@ -164,6 +164,32 @@ final class QuickAccessPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         animationBehavior = .none
+    }
+
+    override var canBecomeKey: Bool { true }
+
+    func dismiss() {
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            self.animator().alphaValue = 0
+        }, completionHandler: {
+            self.orderOut(nil)
+        })
+    }
+}
+
+final class QuickAccessPanel: QuickAccessStackPanel {
+    let capture: Capture
+    private weak var manager: QuickAccessManager?
+    private var thumbView: QuickAccessView!
+    private var closeTimer: Timer?
+
+    @MainActor
+    init(capture: Capture, manager: QuickAccessManager, screen: NSScreen) {
+        self.capture = capture
+        self.manager = manager
+        let size = QuickAccessPanel.size(for: capture)
+        super.init(size: size, screen: screen)
 
         thumbView = QuickAccessView(panel: self)
         thumbView.frame = NSRect(origin: .zero, size: size)
@@ -179,8 +205,6 @@ final class QuickAccessPanel: NSPanel {
         let height = min(max(width * aspect, width * 0.45), width * 1.25)
         return NSSize(width: width, height: height.rounded())
     }
-
-    override var canBecomeKey: Bool { true }
 
     func refresh() {
         let size = QuickAccessPanel.size(for: capture)
@@ -206,14 +230,9 @@ final class QuickAccessPanel: NSPanel {
         }
     }
 
-    func dismiss() {
+    override func dismiss() {
         closeTimer?.invalidate()
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.18
-            self.animator().alphaValue = 0
-        }, completionHandler: {
-            self.orderOut(nil)
-        })
+        super.dismiss()
     }
 
     // Actions invoked by the view

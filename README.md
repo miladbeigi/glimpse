@@ -6,7 +6,8 @@
 
 <p align="center">
   A fast, native macOS screenshot tool that lives in your menu bar.<br>
-  Capture an area, a window, a whole page. Annotate it, redact it, pin it, drag it anywhere.
+  Capture an area, a window, a whole page. Annotate it, redact it, pin it, drag it anywhere.<br>
+  Record your screen with your camera and voice.
 </p>
 
 <p align="center">
@@ -30,6 +31,25 @@
 - **Capture text (OCR)** copies the text in any area, and reads QR codes. Runs on-device.
 
 ![Area selection with magnifier](docs/selection.png)
+
+### Record
+
+- **Screen recording** of an area or a whole display to MP4 (H.264, 30 or 60 fps, Retina or 1×). Drag to
+  select, click for the full screen, or press `Space` to snap to a window. Also **Record Full Screen** from
+  the menu.
+- **Camera bubble**: your webcam in a round (or rounded-square) window that's part of the recording. Drag it
+  anywhere, scroll or pinch to resize, double-click to cycle small / medium / large; right-click to mirror
+  or hide it.
+- **Audio** from the microphone and from the system (Glimpse's own sounds left out), mixed into one track so
+  every player plays both.
+- A control bar with a timer, mic level, **pause/resume**, restart and discard. A countdown (off, 3, 5 or
+  10 seconds) before it starts; the cursor and, on macOS 15+, clicks can be shown.
+- While recording, the menu bar icon turns into a red dot with the elapsed time.
+- The finished video slides into the corner like a screenshot: play it, copy it, show it in Finder, trash it
+  or drag the file into any app. Files are saved to the screenshots folder as
+  `Glimpse Recording 2026-09-29 at 14.03.22.mp4`.
+
+![Recording with the camera bubble and control bar](docs/recording.png)
 
 ### Quick Access Overlay
 
@@ -59,7 +79,8 @@ keys, or lock it so clicks pass through.
 - AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots and read text through Glimpse's
   [MCP server](#ai-agents-mcp).
 - Settings for what happens after a capture (overlay, clipboard, auto-save, open editor), save folder,
-  PNG or JPEG, overlay position and size, and launch at login.
+  PNG or JPEG, overlay position and size, recording (frame rate, resolution, cursor, countdown, audio and
+  camera devices, bubble shape and size), and launch at login.
 
 <p align="center">
   <img src="docs/settings.png" width="420" alt="Settings">
@@ -100,6 +121,8 @@ On first launch a setup window walks you through them:
 - **Screen Recording** (required): turn on Glimpse in **System Settings → Privacy & Security → Screen &
   System Audio Recording**, then click **Relaunch Glimpse**.
 - **Accessibility** (optional): only used by auto-scroll in Scrolling Capture.
+- **Camera** and **Microphone** (optional): asked the first time you record with the camera bubble or the
+  microphone.
 
 Release builds are ad-hoc signed, so after updating you may need to switch Glimpse off and on again in the
 Screen Recording list.
@@ -127,6 +150,7 @@ this repository can ship an update.
 | Self-Timer | ⌥⇧⌘8 |
 | Capture Text | ⌥⇧⌘2 |
 | Restore Recently Closed | ⌥⇧⌘9 |
+| Record Screen (start / stop) | ⌥⇧⌘R |
 
 The defaults stay clear of macOS's own ⇧⌘3/4/5. To use those instead, turn off the system screenshot
 shortcuts in **System Settings → Keyboard → Keyboard Shortcuts → Screenshots**, then set them in
@@ -154,6 +178,21 @@ open "glimpse://annotate?filepath=/path/to/image.png"
 
 Also `capture-previous-area`, `restore-recently-closed`, `annotate-clipboard`, `pin-clipboard`,
 `pin?filepath=…`, `open-settings` (optionally `?tab=shortcuts`) and `permissions`. Region commands accept `display=N` (1-based).
+
+Screen recordings:
+
+```sh
+open "glimpse://record-screen"                                          # interactive
+open "glimpse://record-screen?x=0&y=0&width=1280&height=720&duration=30" # starts right away, stops after 30 s
+open "glimpse://record-fullscreen?display=2&camera=1&mic=1&countdown=0"
+open "glimpse://stop-recording"
+```
+
+With a region, or with `record-fullscreen`, recording starts without the control bar's ready step; add
+`autostart=0` to stop there instead (or `autostart=1` to skip it after an interactive selection). Options:
+`camera`, `mic` and `systemaudio` (`0` or `1`, default from Settings), `countdown=N` seconds and `duration=N` to
+stop after N recorded seconds. Also `pause-recording`, `resume-recording`, `restart-recording` and
+`discard-recording`.
 
 ## AI agents (MCP)
 
@@ -224,6 +263,10 @@ also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
   scripts/build.sh --debug
   open -n build/debug/Glimpse.app --env GLIMPSE_DOCS_DIR="$PWD/docs" --env GLIMPSE_DOCS_SAMPLE=/path/to/sample.png
   ```
+
+  Add `--env GLIMPSE_DOCS_ONLY=recording` to render only `recording.png` and `settings.png`. The camera bubble
+  shows `--env GLIMPSE_DOCS_AVATAR=/path/face.png` (an AI-generated face, not a real person) or a drawn
+  silhouette, never your camera.
 
 ## Releasing
 

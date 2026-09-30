@@ -159,10 +159,11 @@ enum ImageExporter {
         }
     }
 
-    /// Removes temporary drag files from previous runs.
+    /// Removes temporary drag files and unfinished recordings from previous runs.
     static func cleanTemporaryFiles() {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Glimpse", isDirectory: true)
-        try? FileManager.default.removeItem(at: dir)
+        for name in ["Glimpse", "Glimpse Recordings"] {
+            try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent(name, isDirectory: true))
+        }
     }
 }
 
@@ -183,6 +184,13 @@ enum Clipboard {
             item.setData(tiff, forType: .tiff)
         }
         pb.writeObjects([item])
+    }
+
+    /// Puts a file on the clipboard, as Finder's Copy does (pastes as an attachment in Mail, Slack, …).
+    static func copy(fileURL: URL) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([fileURL as NSURL])
     }
 
     static func copy(text: String) {

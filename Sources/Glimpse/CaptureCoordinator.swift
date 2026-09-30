@@ -18,6 +18,7 @@ final class CaptureCoordinator {
         case .selfTimer: selfTimerArea()
         case .captureText: captureText()
         case .restoreRecent: QuickAccessManager.shared.restoreRecentlyClosed()
+        case .recordScreen: RecordingController.shared.toggle()
         }
     }
 
