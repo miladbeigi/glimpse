@@ -20,7 +20,14 @@ p12 glimpse
 security unlock-keychain -p glimpse "$KC"
 security import id.p12 -k "$KC" -P glimpse -T /usr/bin/codesign >/dev/null
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k glimpse "$KC" >/dev/null
-security list-keychains -d user -s $(security list-keychains -d user | tr -d '"') "$KC"
+# Keep the existing search list. Read it line by line: paths can contain spaces ("Application Support"),
+# and splitting them on spaces leaves codesign unable to find the identity.
+keychains=()
+while IFS= read -r kc; do
+  kc="${kc#"${kc%%[![:space:]]*}"}"; kc="${kc#\"}"; kc="${kc%\"}"
+  [ -n "$kc" ] && [ "$kc" != "$KC" ] && keychains+=("$kc")
+done < <(security list-keychains -d user)
+security list-keychains -d user -s ${keychains[@]+"${keychains[@]}"} "$KC"
 if [ "${1:-}" = --github ]; then
   password="$(openssl rand -hex 24)"
   p12 "$password"
