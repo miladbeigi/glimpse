@@ -1,4 +1,5 @@
 import AppKit
+import Meetings
 import Combine
 
 enum ImageFormat: String, CaseIterable, Identifiable {
@@ -89,6 +90,16 @@ final class Preferences: ObservableObject {
     /// Also lets them record the screen (never the microphone or camera). Off until the user opts in.
     @Published var agentRecording: Bool { didSet { defaults.set(agentRecording, forKey: Keys.agentRecording) } }
 
+    /// Meeting detection, recording and transcription.
+    @Published var meetingsEnabled: Bool {
+        didSet {
+            defaults.set(meetingsEnabled, forKey: Keys.meetingsEnabled)
+            if meetingsEnabled { Meetings.start() } else { Meetings.stop() }
+        }
+    }
+    /// Holds Meetings/. Existing files stay where they are when it changes.
+    @Published var dataFolder: URL { didSet { defaults.set((dataFolder.path as NSString).abbreviatingWithTildeInPath, forKey: DataFolder.defaultsKey) } }
+
     // Recording
     @Published var recordFrameRate: Int { didSet { defaults.set(recordFrameRate, forKey: Keys.recordFrameRate) } }
     /// Full Retina resolution; off records at 1× (smaller files).
@@ -130,6 +141,7 @@ final class Preferences: ObservableObject {
         static let selfTimer = "selfTimerSeconds"
         static let agentAccess = "agentAccess"
         static let agentRecording = "agentRecording"
+        static let meetingsEnabled = "meetingsEnabled"
         static let shortcuts = "shortcuts"
         static let recordFrameRate = "recordFrameRate"
         static let recordRetina = "recordRetina"
@@ -179,6 +191,8 @@ final class Preferences: ObservableObject {
         windowShadow = bool(Keys.windowShadow, true)
         agentAccess = bool(Keys.agentAccess, false)
         agentRecording = bool(Keys.agentRecording, false)
+        meetingsEnabled = bool(Keys.meetingsEnabled, false)
+        dataFolder = DataFolder.root
         selfTimerSeconds = d.object(forKey: Keys.selfTimer) == nil ? 5 : d.integer(forKey: Keys.selfTimer)
         recordFrameRate = d.integer(forKey: Keys.recordFrameRate) == 60 ? 60 : 30
         recordRetina = bool(Keys.recordRetina, true)

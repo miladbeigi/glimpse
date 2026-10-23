@@ -121,7 +121,7 @@ enum AgentTools {
                 "inputSchema": schema(windowTarget, regionTarget, display),
                 "annotations": ["readOnlyHint": true],
             ],
-        ]
+        ] + MeetingTools.definitions
     }
 }
 
@@ -154,8 +154,9 @@ enum AgentToolRunner {
 
     static func call(_ name: String, _ args: [String: Any]) async -> [String: Any] {
         guard Preferences.shared.agentAccess else {
-            return AgentTools.error("Agent access is turned off. Turn on \"Allow AI agents to take screenshots\" in Glimpse Settings › Agents.")
+            return AgentTools.error("Agent access is turned off. Turn on \"Allow AI agents to take screenshots and read meeting transcripts\" in Glimpse Settings › Agents.")
         }
+        if let result = await MeetingTools.call(name, args) { return result }
         if name != "list_displays", !ScreenCapture.hasPermission {
             return AgentTools.error("Glimpse doesn't have Screen Recording permission. Grant it in System Settings › Privacy & Security › "
                 + "Screen Recording (or Glimpse Settings › Permissions), then reopen Glimpse.")

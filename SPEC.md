@@ -1,7 +1,8 @@
 # Glimpse — Product Spec
 
 A native macOS menu-bar screenshot tool: fast captures, a floating quick-access thumbnail,
-a full annotation editor, pinned screenshots, OCR and screen recording with a camera bubble.
+a full annotation editor, pinned screenshots, OCR, screen recording with a camera bubble, and
+on-device meeting recording with speaker-labelled transcripts.
 Cloud upload, capture history, GIF export and a background/"beautify" tool are intentionally out of scope for v1.
 
 Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppKit + SwiftUI.
@@ -20,7 +21,8 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 | OCR | Copy text from any area, QR code reading, on-device | ✅ (Vision framework) |
 | Automation | `glimpse://` URL commands, optionally with explicit regions | ✅ |
 | Recording | Area / fullscreen / window-area MP4, camera bubble, microphone + system audio, pause/resume, restart, countdown, cursor & click highlighting, trimming, GIF export | ✅ all except trimming & GIF |
-| AI agents | MCP server (`Glimpse mcp`): list windows/displays, screenshot window/screen/region, OCR, screen recording | ✅ (opt-in; recording has its own opt-in) |
+| Meetings | Call detection (window, camera, network, voice, calendar), mic + system audio recording, on-device transcription with speaker diarization and voice profiles, markdown transcripts, history window, Google Calendar, system-wide mic mute | ✅ (opt-in) |
+| AI agents | MCP server (`Glimpse mcp`): list windows/displays, screenshot window/screen/region, OCR, screen recording, meeting search and transcripts | ✅ (opt-in; recording has its own opt-in) |
 | Background tool | Padding, wallpapers, presets | ❌ (v2) |
 | Cloud, History | — | ❌ |
 
@@ -29,8 +31,10 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 ### 2.1 Menu bar app
 - Lives in the menu bar (no Dock icon) — Dock icon appears only while an Editor or Settings window is open.
 - Menu: Capture Area, Capture Previous Area, Capture Fullscreen, Capture Window, Scrolling Capture,
-  Self-Timer ▸, Capture Text (OCR), Record Screen…, Record Full Screen, Annotate Image…, Annotate from Clipboard, Pin from Clipboard,
-  Restore Recently Closed, Unlock Pinned Screenshots, Open Screenshots Folder, Settings…, Quit.
+  Self-Timer ▸, Capture Text (OCR), Record Screen…, Record Full Screen, Meetings ▸ (Start/Stop/Pause Recording,
+  Upcoming Meetings with Join & Record, Transcription History, Meetings Settings…), Annotate Image…,
+  Annotate from Clipboard, Pin from Clipboard, Restore Recently Closed, Unlock Pinned Screenshots,
+  Open Screenshots Folder, Settings…, Quit.
 - Menu items display the currently configured global shortcuts.
 - While recording, the menu bar icon becomes a red dot (a pause symbol while paused) with the elapsed time, and
   the menu starts with Stop Recording, Pause/Resume Recording and Discard Recording.
@@ -47,6 +51,7 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 | Capture Text (OCR) | ⌥⇧⌘2 |
 | Restore Recently Closed | ⌥⇧⌘9 |
 | Record Screen (start / stop) | ⌥⇧⌘R |
+| Mute microphone (fixed, only while meetings are on) | ⌃⌥M |
 
 (Defaults avoid macOS' own ⇧⌘3/4/5. Users can take those over after disabling them in System Settings ▸ Keyboard ▸ Shortcuts.)
 
@@ -131,17 +136,76 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 - `Esc` or hover ✕ closes. Double-click opens the editor. Locked pins are unlocked from the menu bar.
 
 ### 2.9 Settings
-- General: launch at login, sound, after-capture actions, save folder, format, quality, 1× option.
+- General: launch at login, sound, after-capture actions, save folder, format, quality, 1× option, and the
+  data folder (default `~/Glimpse`) that holds `Meetings/`.
 - Capture: crosshair, magnifier, window shadow, self-timer duration.
 - Quick Access: corner, size, auto-close.
 - Recording: frame rate (30/60), Retina or 1×, show cursor, highlight clicks (macOS 15+), countdown
   (off/3/5/10 s), microphone on/off + device, system audio on/off, camera on/off + device, bubble shape, size,
   mirror.
 - Shortcuts: recorder per action (click, press combo; ⌫ clears; Esc cancels).
-- Agents: opt-in toggle for MCP access, a second opt-in for screen recording, copyable setup command for Claude Code and a JSON config for other clients.
+- Meetings: record meetings on/off, start automatically, Google Calendar sign-in and calendar ids, transcription
+  language and speaker separation, your name(s) and voice enrolment, detection timing (poll interval, voice
+  sensitivity, quiet period, prompt timeout), transcripts folder and debug log.
+- Agents: opt-in toggle for MCP access (screenshots and meeting transcripts), a second opt-in for screen recording, copyable setup command for Claude Code and a JSON config for other clients.
   Agent recordings (start_recording / stop_recording / recording_status) never use the microphone or camera, show the
   usual recording controls, stop after at most 10 minutes, go to a temporary folder or `save_path`, and return still frames.
 - Permissions: Screen Recording, Accessibility, Camera & Microphone status with buttons to open System Settings.
+
+### 2.10 Meetings
+Opt-in (**Settings ▸ Meetings ▸ Record meetings**, off by default). Everything runs on the Mac.
+
+- **Detection** polls every 2 s (configurable) for five signals: a meeting window (Google Meet, Zoom, Microsoft
+  Teams, Slack huddles, Discord, FaceTime, Webex, Tuple in their apps; Meet, Zoom and Teams also in a browser), the camera in use, call-like
+  UDP traffic (WebRTC packet rate, with the service guessed from its STUN/TURN port), voice activity on the microphone
+  (started lazily, only once traffic and a window agree), and a current calendar event. A meeting is active when
+  camera + traffic, camera + window, traffic + window + voice, or calendar + any of camera/traffic/voice. An
+  in-use camera vetoes end detection.
+- **Starting**: a *Meeting detected* card names the signals (or the calendar event with attendees). Recording
+  starts only from the card, the menu (**Start Recording**, **Join & Record** on an upcoming event, or
+  **Record “<event>”** in Glimpse's main menu while a calendar event is current) or, with **Start recording
+  automatically** on, by itself. When a call is detected during a calendar meeting and auto-start is off, a card
+  offers to record it, once per meeting.
+- **Recording**: microphone (left) and system audio (right) on one host-clock timeline into a 16-bit 48 kHz WAV
+  in Application Support; each channel is spooled to disk so long meetings don't grow memory. A floating
+  indicator shows a level meter, elapsed time, pause/resume, mute and stop. `⌃⌥M` toggles a system-wide
+  microphone mute at the CoreAudio level (restored on unmute, on quit, and after a crash). The menu bar
+  Meetings submenu shows the state (Idle / Monitoring / Recording — Title / Ending / Paused).
+- **Ending**: when every end signal has been quiet for 10 s (configurable) a *Meeting may have ended* panel counts
+  down 20 s and stops the recording if nobody answers; *Keep Recording* holds off end detection until activity
+  resumes. Recordings in progress at a
+  crash or quit are recovered and transcribed at the next launch; quitting during a recording asks first.
+- **Transcription** (FluidAudio, models downloaded on first use and cached): Parakeet speech recognition in the
+  chosen language (auto by default), speaker diarization (can be turned off), then speaker identification against
+  stored voice embeddings. The user's own profile comes from a 15-second enrolment in Settings; in a one-on-one
+  with a calendar attendee, that attendee's voice can be learned from the transcription, and learned profiles are
+  listed (and deletable) in the history window. Progress shows on a card (Preparing → Transcribing → Identifying
+  speakers → Saving transcript), then a *Transcript Ready* card with an Open Transcript button.
+- **Transcript**: markdown — title, date, duration, attendees, meeting URL, then `**Speaker:** text` paragraphs
+  (consecutive turns of the same identified speaker merged; *Unknown* never merged). Written, never overwritten,
+  to `<data folder>/Meetings/<yyyy-MM-dd>/<yyyyMMddHHmm>-<slug>.md`; the data folder defaults to `~/Glimpse` and is
+  set in Settings ▸ General.
+- **History** window: every recording with status, duration, segment count, attendees, learned voice profiles,
+  pipeline timings and files; open the transcript or recording, reassign the recording to another calendar event
+  (updates its title and attendees), delete (recording and transcript to the Trash), and clear failed recordings.
+- **Google Calendar** (optional): OAuth 2.0 + PKCE through a loopback server, `calendar.readonly` scope, using the
+  user's own OAuth client JSON placed in Application Support. Events from the configured calendars (default
+  `primary`) for the next 24 h are refreshed hourly and when the menu opens; an event counts as "now" from 2 min
+  before its start until 20 min after its end (both configurable). The token is stored next to the client file.
+- **MCP** (behind the Agents opt-in): `meeting_search` reads every `.md` under `<data folder>/Meetings/` (a symlinked
+  folder is resolved; hidden files, packages, symlinked files and files over 5 MB are skipped) off the main thread,
+  parses the header (only when the lines before the first `---` are `# Title` and `**Key:**` lines, so other notes
+  keep all their text), and returns meetings newest first that match all query terms
+  (`"phrases"` kept whole, case- and accent-insensitive) in title, attendees or text, an attendee substring and an
+  inclusive date range, with up to N matching speaker paragraphs each. `meeting_transcript` returns a transcript by
+  a path inside that folder (symlinks resolved), or by time or title on a date, or lists the day's recorded
+  meetings. Agents cannot start or stop meeting recordings.
+- **Privacy**: no audio, transcript or embedding leaves the machine; network use is limited to the first-use
+  download of the speech, speaker and voice-activity models from Hugging Face (the last one can happen during
+  detection, before any recording) and the Calendar API. The channel split made during transcription goes
+  through the system temp folder and is deleted afterwards. The microphone is captured only while recording (and for voice-activity detection once a
+  call already looks active). Recordings are kept until the user deletes them from History.
+
 
 ## 3. Architecture
 
@@ -170,10 +234,29 @@ Sources/Glimpse/
   Agent/ MCPBridge.swift             `Glimpse mcp`: stdio JSON-RPC, forwards tool calls to the app
          AgentServer.swift           Unix socket in Application Support, serves calls in the app
          AgentTools.swift            tool definitions + capture/OCR execution
+         MeetingTools.swift          meeting_search and meeting_transcript tools
          AgentSocket.swift           socket and line-framing helpers
   Editor/ Annotation.swift, EditorModel.swift, Renderer.swift, CanvasView.swift,
           EditorWindowController.swift, EditorToolbar.swift
-Tests/GlimpseTests                   stitcher, renderer, key-combo, recording timeline/writer tests
+Sources/Meetings/                    library target: meeting recording and transcription
+  MeetingsHost.swift                 entry point for Glimpse (start/stop, submenu, status, MeetingRecord)
+  AppState.swift                     state machine glue: detection events → cards → recording → pipeline
+  AppSettings.swift, Paths.swift     settings.json in Application Support; data folder (~/Glimpse)
+  MeetingDetectionService.swift      poll loop over the MeetingDetection signals
+  CalendarService.swift              Google Calendar OAuth (PKCE, loopback) and event matching
+  Audio/                             mic + system audio capture to WAV, resampling, system-wide mic mute
+  Transcription/                     pipeline, providers protocol/registry, speaker identification,
+                                     voice profiles, markdown writer, history store (SQLite),
+                                     transcript search
+  Providers/                         FluidAudio ASR, diarization and embedding providers (models cached)
+  UI/                                recording indicator, notification cards, end-of-meeting prompt
+  HistoryView.swift, VoiceEnrollment.swift, WindowManager.swift, GlobalHotKey.swift, Log.swift
+Sources/MeetingDetection/            library target, no UI: signal detectors (window, camera, WebRTC
+                                     packet rate, voice activity), aggregator rules, meeting state
+                                     machine, file naming
+Tests/GlimpseTests                   stitcher, renderer, key-combo, recording timeline/writer, MCP tests
+Tests/MeetingsTests                  crash recovery, record prompt, voice profiles, transcript search
+Tests/MeetingDetectionTests          end detection, WebRTC logic, file naming
 scripts/                             build, install, signing setup, smoke test, icon
 ```
 
@@ -189,7 +272,8 @@ scripts/                             build, install, signing setup, smoke test, 
 - **Screen Recording** — required for every capture (prompted on first launch).
 - **Accessibility** — only for scrolling capture's Auto-scroll (synthetic scroll events).
 - **Camera** — optional, for the recording camera bubble (asked the first time it's turned on).
-- **Microphone** — optional, for recording voice (asked the first time it's used).
+- **Microphone** — optional, for recording voice (asked the first time it's used) and for meetings (asked when
+  they're turned on). Meeting recordings take the call's audio through the Screen Recording permission.
 
 ## 5. Out of scope (v1)
 GIF export, trimming recordings, cloud upload, capture history, background tool, rotate/flip, editable project files,

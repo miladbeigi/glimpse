@@ -41,14 +41,29 @@ func render(_ px: Int) -> Data {
     NSColor.white.setStroke()
     corners.stroke()
 
-    // Lens
-    let d = f.width * 0.34
-    let lens = NSBezierPath(ovalIn: NSRect(x: f.midX - d / 2, y: f.midY - d / 2, width: d, height: d))
+    // An eye whose iris is a sound wave: Glimpse sees the screen and hears the meeting.
+    let c = NSPoint(x: f.midX, y: f.midY)
+    let w = f.width * 0.82, h = f.width * 0.5
+    let eye = NSBezierPath()
+    eye.move(to: NSPoint(x: c.x - w / 2, y: c.y))
+    eye.curve(to: NSPoint(x: c.x + w / 2, y: c.y), controlPoint1: NSPoint(x: c.x - w * 0.22, y: c.y + h * 0.95),
+              controlPoint2: NSPoint(x: c.x + w * 0.22, y: c.y + h * 0.95))
+    eye.curve(to: NSPoint(x: c.x - w / 2, y: c.y), controlPoint1: NSPoint(x: c.x + w * 0.22, y: c.y - h * 0.95),
+              controlPoint2: NSPoint(x: c.x - w * 0.22, y: c.y - h * 0.95))
     NSColor.white.setFill()
-    lens.fill()
-    let d2 = d * 0.45
+    eye.fill()
+    let d = h * 0.86
     NSColor(srgbRed: 0.35, green: 0.37, blue: 0.98, alpha: 1).setFill()
-    NSBezierPath(ovalIn: NSRect(x: f.midX - d2 / 2, y: f.midY - d2 / 2, width: d2, height: d2)).fill()
+    NSBezierPath(ovalIn: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)).fill()
+    let bars: [CGFloat] = [0.3, 0.6, 1.0, 0.6, 0.3]
+    let barWidth = d * 0.1, gap = d * 0.065
+    let total = CGFloat(bars.count) * barWidth + CGFloat(bars.count - 1) * gap
+    NSColor.white.setFill()
+    for (i, height) in bars.enumerated() {
+        let x = c.x - total / 2 + CGFloat(i) * (barWidth + gap), barHeight = d * 0.62 * height
+        NSBezierPath(roundedRect: NSRect(x: x, y: c.y - barHeight / 2, width: barWidth, height: barHeight),
+                     xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
+    }
 
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!

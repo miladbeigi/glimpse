@@ -50,6 +50,8 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :UpdateRepository string $UPDATE_REPO" "$APP/Contents/Info.plist"
 cp "$ROOT/build/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+# SwiftPM resource bundles from dependencies, if any.
+for b in "$(dirname "${BINS[0]}")"/*.bundle; do [ -d "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 
 # Sign. A stable identity keeps macOS permissions (Screen Recording) across rebuilds.
 LOCAL_KC="$HOME/Library/Application Support/Glimpse-dev/glimpse-signing.keychain-db"
