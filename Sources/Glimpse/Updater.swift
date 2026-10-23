@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import CryptoKit
 import Foundation
+import Meetings
 
 struct AppRelease: Sendable, Equatable {
     let version: String
@@ -16,6 +17,7 @@ enum UpdateError: LocalizedError {
     case checksumMismatch
     case badArchive
     case notWritable(String)
+    case meetingInProgress
 
     var errorDescription: String? {
         switch self {
@@ -23,6 +25,7 @@ enum UpdateError: LocalizedError {
         case .noAsset: return "The latest release has no app download."
         case .checksumMismatch: return "Downloaded update failed its checksum; not installed."
         case .badArchive: return "Downloaded update didn't contain Glimpse."
+        case .meetingInProgress: return "A meeting started while the update downloaded. Update when it's done."
         case .notWritable(let path): return "Can't replace the app at \(path). Move it to ~/Applications or /Applications."
         }
     }
@@ -123,6 +126,11 @@ enum Updater {
         let swapper = Process()
         swapper.executableURL = URL(fileURLWithPath: "/bin/sh")
         swapper.arguments = ["-c", script, "sh", newApp.path, current.path, destination.path, staging.path]
+        // A meeting may have started during the download; the swap only runs once this process exits.
+        guard await MainActor.run(body: { !Meetings.isBusy }) else {
+            try? FileManager.default.removeItem(at: staging)
+            throw UpdateError.meetingInProgress
+        }
         try swapper.run()
         await MainActor.run { NSApp.terminate(nil) }
     }
@@ -191,6 +199,11 @@ final class UpdateController: ObservableObject {
 
     func install() async {
         guard let release = availableUpdate, !isInstalling else { return }
+        // Installing quits the app; never mid-meeting.
+        guard !Meetings.isBusy else {
+            status = "A meeting is being recorded or transcribed. Update when it's done."
+            return
+        }
         isInstalling = true
         status = "Downloading \(release.version)…"
         do {

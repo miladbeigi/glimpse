@@ -1,6 +1,7 @@
 import Combine
 import AppKit
 import AVFoundation
+import Meetings
 import ServiceManagement
 import SwiftUI
 
@@ -13,7 +14,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     /// `tab` is a tab's label, case-insensitive, spaces optional (e.g. "shortcuts"); nil keeps the current tab.
     static func show(tab: String? = nil) {
         if shared == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 540),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 540),
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "Glimpse Settings"
             window.isReleasedWhenClosed = false
@@ -40,6 +41,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private static let selection = SettingsSelection()
+    /// Fits all tab buttons in one row.
+    static let width: CGFloat = 700
 
     func windowWillClose(_ notification: Notification) {
         DispatchQueue.main.async { AppDelegate.refreshActivationPolicy() }
@@ -47,7 +50,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 }
 
 private enum SettingsTab: CaseIterable {
-    case general, capture, recording, quickAccess, shortcuts, agents, permissions
+    case general, capture, recording, quickAccess, shortcuts, meetings, agents, permissions
 
     var title: String {
         switch self {
@@ -56,6 +59,7 @@ private enum SettingsTab: CaseIterable {
         case .recording: "Recording"
         case .quickAccess: "Quick Access"
         case .shortcuts: "Shortcuts"
+        case .meetings: "Meetings"
         case .agents: "Agents"
         case .permissions: "Permissions"
         }
@@ -68,19 +72,28 @@ private enum SettingsTab: CaseIterable {
         case .recording: "record.circle"
         case .quickAccess: "rectangle.on.rectangle"
         case .shortcuts: "keyboard"
+        case .meetings: "waveform"
         case .agents: "sparkles"
         case .permissions: "lock.shield"
         }
     }
 
-    /// Fits each tab's content; General adds `extraRows` for its optional rows. The form scrolls beyond that.
+    /// Fits each tab's content; General adds `extraRows` for its optional rows. The form scrolls beyond that,
+    /// and the window never grows past the screen.
+    @MainActor
     func height(extraRows: CGFloat = 0) -> CGFloat {
+        let screen = (NSScreen.main?.visibleFrame.height ?? 900) - 110
+        return min(contentHeight(extraRows: extraRows), screen)
+    }
+
+    private func contentHeight(extraRows: CGFloat) -> CGFloat {
         switch self {
-        case .general: 640 + extraRows * 40
+        case .general: 720 + extraRows * 40
         case .capture: 340
         case .recording: 700
         case .quickAccess: 270
         case .shortcuts: 560
+        case .meetings: 700
         case .agents: 460
         case .permissions: 300
         }
@@ -124,11 +137,12 @@ private struct SettingsView: View {
                 case .recording: RecordingSettings()
                 case .quickAccess: OverlaySettings()
                 case .shortcuts: ShortcutSettings()
+                case .meetings: MeetingsSettingsView(enabled: $prefs.meetingsEnabled)
                 case .agents: AgentSettings()
                 case .permissions: PermissionSettings()
                 }
             }
-            .frame(width: 560, height: selection.tab.height(extraRows: generalExtraRows))
+            .frame(width: SettingsWindowController.width, height: selection.tab.height(extraRows: generalExtraRows))
         }
     }
 }
@@ -146,7 +160,7 @@ private struct TabButton: View {
                     .frame(height: 24)
                 Text(tab.title).font(.system(size: 11))
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 4)
             .padding(.vertical, 5)
             .frame(minWidth: 64)
             .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
@@ -206,11 +220,43 @@ private struct GeneralSettings: View {
                 }
                 Toggle("Save and copy Retina screenshots at 1×", isOn: $prefs.saveAt1x)
             }
+            Section {
+                HStack {
+                    Text("Data folder")
+                    Spacer()
+                    Text(prefs.dataFolder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Choose…", action: chooseDataFolder)
+                    Button("Show") {
+                        try? FileManager.default.createDirectory(at: prefs.dataFolder, withIntermediateDirectories: true)
+                        NSWorkspace.shared.open(prefs.dataFolder)
+                    }
+                }
+            } header: {
+                Text("Meetings")
+            } footer: {
+                Text("Meeting transcripts go in Meetings/ here, one folder per day, so other tools can read them. Changing it doesn't move existing files.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if Updater.repository != nil {
                 UpdateSection()
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func chooseDataFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = prefs.dataFolder
+        if panel.runModal() == .OK, let url = panel.url {
+            prefs.dataFolder = url
+        }
     }
 
     private func chooseFolder() {
@@ -419,12 +465,13 @@ private struct AgentSettings: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Allow AI agents to take screenshots", isOn: $prefs.agentAccess)
+                Toggle("Allow AI agents to take screenshots and read meeting transcripts", isOn: $prefs.agentAccess)
                 Toggle("Allow AI agents to record the screen", isOn: $prefs.agentRecording)
                     .disabled(!prefs.agentAccess)
             } footer: {
-                Text("While this is on, agents you connect can list windows, take screenshots and read text from anything on screen. "
-                    + "Recordings show Glimpse's recording controls, stop after at most 10 minutes, and never include the microphone or camera.")
+                Text("While this is on, agents you connect can list windows, take screenshots, read text from anything on screen and read "
+                    + "the transcripts of recorded meetings. Recordings show Glimpse's recording controls, stop after at most 10 minutes, "
+                    + "and never include the microphone or camera.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -434,7 +481,7 @@ private struct AgentSettings: View {
                 command("Other MCP clients (Claude Desktop, Cursor, …)", jsonConfig)
             }
             Section {
-                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region, read_text, start_recording, stop_recording and recording_status. Screenshots are also saved as full-resolution files.")
+                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region, read_text, start_recording, stop_recording, recording_status and meeting_transcript. Screenshots are also saved as full-resolution files; meeting_transcript returns the transcript of a recorded meeting.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -493,7 +540,7 @@ private struct PermissionSettings: View {
                 row("Camera", granted: camera, detail: "Only for the camera bubble in screen recordings.") {
                     Task { camera = await MediaDevices.requestAccess(.video, explicit: true) }
                 }
-                row("Microphone", granted: microphone, detail: "Only for recording your voice with the screen.") {
+                row("Microphone", granted: microphone, detail: "For meetings, and for recording your voice with the screen.") {
                     Task { microphone = await MediaDevices.requestAccess(.audio, explicit: true) }
                 }
             } footer: {

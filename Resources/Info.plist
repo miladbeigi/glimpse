@@ -61,7 +61,7 @@
     <key>NSCameraUsageDescription</key>
     <string>Glimpse shows your camera in a bubble on screen recordings.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Glimpse records your voice with screen recordings.</string>
+    <string>Glimpse records your voice with screen recordings and meetings, and listens for voice activity to tell when a meeting starts and ends.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>

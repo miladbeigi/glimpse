@@ -9,7 +9,8 @@ enum MCPBridge {
     static let instructions = """
         Glimpse takes screenshots of this Mac for you. Use list_windows to find a window, then screenshot_window; \
         screenshot_screen and screenshot_region for displays and areas; read_text to get text via OCR instead of an image. \
-        Every screenshot is also saved as a full-resolution file whose path is in the result.
+        Every screenshot is also saved as a full-resolution file whose path is in the result. \
+        meeting_transcript returns the speaker-labelled transcript of a meeting Glimpse recorded, by time or title.
         """
 
     static func run() -> Never {

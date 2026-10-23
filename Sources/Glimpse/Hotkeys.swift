@@ -155,7 +155,8 @@ private func hotKeyEventHandler(_ next: EventHandlerCallRef?, _ event: EventRef?
     var hotKeyID = EventHotKeyID()
     let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                                    nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
-    guard status == noErr else { return status }
+    // Every hotkey handler on the app target sees every hotkey; pass on the ones that aren't ours.
+    guard status == noErr, hotKeyID.signature == HotkeyManager.signature else { return OSStatus(eventNotHandledErr) }
     let id = hotKeyID.id
     DispatchQueue.main.async {
         MainActor.assumeIsolated { HotkeyManager.shared.fire(id: id) }
@@ -175,7 +176,7 @@ final class HotkeyManager {
     /// Actions whose shortcut could not be registered (already taken by another app).
     private(set) var failed: Set<HotkeyAction> = []
 
-    private static let signature: OSType = {
+    nonisolated static let signature: OSType = {
         var result: OSType = 0
         for ch in "GLMP".utf8 { result = (result << 8) | OSType(ch) }
         return result

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Meetings
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -38,14 +39,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UpdateController.shared.start()
         AgentToolRunner.cleanOutput()
         AgentServer.shared.start()
+        Meetings.openSettings = { SettingsWindowController.show(tab: "meetings") }
+        if Preferences.shared.meetingsEnabled { Meetings.start() }
 
         if !ScreenCapture.hasPermission {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { PermissionsWindowController.show() }
         }
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard Meetings.isBusy else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = Meetings.isRecording ? "A meeting is being recorded" : "A meeting is being transcribed"
+        alert.informativeText = "If you quit now, Glimpse finishes it the next time it opens."
+        alert.addButton(withTitle: "Keep Running")
+        alert.addButton(withTitle: "Quit Anyway")
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         AgentServer.shared.stop()
+        Meetings.prepareForQuit()
     }
 
     /// Images dropped on the app icon or opened with "Open With › Glimpse" go straight to the editor.
@@ -103,6 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        // Items set isEnabled themselves (restore, update); AppKit would otherwise re-enable them.
+        menu.autoenablesItems = false
         let shortcuts = Preferences.shared.shortcuts
 
         func item(_ title: String, _ action: Selector, symbol: String? = nil, hotkey: HotkeyAction? = nil) -> NSMenuItem {
@@ -121,6 +138,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(warn)
             menu.addItem(.separator())
         }
+        // The meeting happening now, one click away (recording is manual when auto-detection is off).
+        if let title = Meetings.recordingTitle {
+            menu.addItem(item("Stop Recording “\(title)”", #selector(stopMeetingRecording), symbol: "stop.circle.fill"))
+            menu.addItem(.separator())
+        } else if let title = Meetings.unrecordedMeetingNow {
+            menu.addItem(item("Record “\(title)”", #selector(recordMeetingNow), symbol: "record.circle"))
+            menu.addItem(.separator())
+        }
         let recorder = RecordingController.shared
         if recorder.isRecording {
             menu.addItem(item("Stop Recording", #selector(stopRecording), symbol: "stop.circle", hotkey: .recordScreen))
@@ -135,41 +160,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(mi)
             menu.addItem(.separator())
         }
+        func header(_ title: String) {
+            menu.addItem(NSMenuItem.sectionHeader(title: title))
+        }
+        func submenu(_ title: String, symbol: String, status: String? = nil, _ items: [NSMenuItem]) -> NSMenuItem {
+            let mi = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            mi.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            if let status {
+                if #available(macOS 14.4, *) { mi.subtitle = status } else { mi.title = "\(title) — \(status)" }
+            }
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            items.forEach(sub.addItem)
+            mi.submenu = sub
+            return mi
+        }
+
+        header("Capture")
         menu.addItem(item("Capture Area", #selector(captureArea), symbol: "rectangle.dashed", hotkey: .captureArea))
-        menu.addItem(item("Capture Previous Area", #selector(capturePrevious), symbol: "arrow.counterclockwise", hotkey: .capturePreviousArea))
-        menu.addItem(item("Capture Fullscreen", #selector(captureFullscreen), symbol: "display", hotkey: .captureFullscreen))
         menu.addItem(item("Capture Window", #selector(captureWindow), symbol: "macwindow", hotkey: .captureWindow))
+        menu.addItem(item("Capture Fullscreen", #selector(captureFullscreen), symbol: "display", hotkey: .captureFullscreen))
         menu.addItem(item("Scrolling Capture", #selector(scrollingCapture), symbol: "arrow.up.and.down.text.horizontal", hotkey: .scrollingCapture))
-
-        let timer = NSMenuItem(title: "Self-Timer", action: nil, keyEquivalent: "")
-        timer.image = NSImage(systemSymbolName: "timer", accessibilityDescription: nil)
-        let timerMenu = NSMenu()
-        timerMenu.addItem(item("Area (\(Preferences.shared.selfTimerSeconds)s)", #selector(selfTimerArea), hotkey: .selfTimer))
-        for s in [3, 5, 10] {
-            let mi = item("Fullscreen in \(s)s", #selector(selfTimerFullscreen(_:)))
-            mi.tag = s
-            timerMenu.addItem(mi)
-        }
-        timer.submenu = timerMenu
-        menu.addItem(timer)
-
         menu.addItem(item("Capture Text", #selector(captureText), symbol: "text.viewfinder", hotkey: .captureText))
-        menu.addItem(.separator())
-        if !recorder.isActive {
-            menu.addItem(item("Record Screen…", #selector(recordScreen), symbol: "record.circle", hotkey: .recordScreen))
-            menu.addItem(item("Record Full Screen", #selector(recordFullScreen), symbol: "inset.filled.rectangle.badge.record"))
-            menu.addItem(.separator())
+        var more = [
+            item("Capture Previous Area", #selector(capturePrevious), symbol: "arrow.counterclockwise", hotkey: .capturePreviousArea),
+            item("Self-Timer Area (\(Preferences.shared.selfTimerSeconds)s)", #selector(selfTimerArea), symbol: "timer", hotkey: .selfTimer),
+        ]
+        for s in [3, 5, 10] {
+            let mi = item("Self-Timer Fullscreen in \(s)s", #selector(selfTimerFullscreen(_:)))
+            mi.tag = s
+            more.append(mi)
         }
-        menu.addItem(item("Annotate Image…", #selector(annotateFile), symbol: "pencil.and.outline"))
-        menu.addItem(item("Annotate from Clipboard", #selector(annotateClipboard), symbol: "doc.on.clipboard"))
-        menu.addItem(item("Pin from Clipboard", #selector(pinClipboard), symbol: "pin"))
         let restore = item("Restore Recently Closed", #selector(restoreRecent), symbol: "clock.arrow.circlepath", hotkey: .restoreRecent)
         restore.isEnabled = QuickAccessManager.shared.recentlyClosed != nil
-        menu.addItem(restore)
-        if PinWindowController.hasLocked {
-            menu.addItem(item("Unlock Pinned Screenshots", #selector(unlockPins), symbol: "lock.open"))
+        more += [.separator(), restore]
+        menu.addItem(submenu("More", symbol: "ellipsis.circle", more))
+
+        if !recorder.isActive {
+            header("Record")
+            menu.addItem(item("Record Screen…", #selector(recordScreen), symbol: "record.circle", hotkey: .recordScreen))
+            menu.addItem(item("Record Full Screen", #selector(recordFullScreen), symbol: "inset.filled.rectangle.badge.record"))
         }
+
+        header("Meetings")
+        let meetingsMenu = NSMenu()
+        meetingsMenu.autoenablesItems = false
+        if Meetings.isRunning {
+            Meetings.populate(meetingsMenu)
+        } else {
+            meetingsMenu.addItem(item("Turn On Meetings", #selector(startMeetings)))
+            meetingsMenu.addItem(.separator())
+            meetingsMenu.addItem(item("Transcription History", #selector(openMeetingHistory)))
+            meetingsMenu.addItem(item("Meetings Settings…", #selector(openMeetingsSettings)))
+        }
+        let meetings = submenu("Meetings", symbol: Meetings.isRecording ? "waveform.circle.fill" : "waveform",
+                               status: Meetings.statusText, [])
+        meetings.submenu = meetingsMenu
+        menu.addItem(meetings)
         menu.addItem(.separator())
+
+        var annotate = [
+            item("Annotate Image…", #selector(annotateFile), symbol: "pencil.and.outline"),
+            item("Annotate from Clipboard", #selector(annotateClipboard), symbol: "doc.on.clipboard"),
+            item("Pin from Clipboard", #selector(pinClipboard), symbol: "pin"),
+        ]
+        if PinWindowController.hasLocked {
+            annotate.append(item("Unlock Pinned Screenshots", #selector(unlockPins), symbol: "lock.open"))
+        }
+        menu.addItem(submenu("Annotate & Pin", symbol: "pencil.tip.crop.circle", annotate))
         menu.addItem(item("Open Screenshots Folder", #selector(openFolder), symbol: "folder"))
         let settings = item("Settings…", #selector(openSettings), symbol: "gearshape")
         settings.keyEquivalent = ","
@@ -217,6 +275,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     @objc private func openSettings() { SettingsWindowController.show() }
     @objc private func openPermissions() { PermissionsWindowController.show() }
+    @objc private func startMeetings() { Preferences.shared.meetingsEnabled = true }
+    @objc private func recordMeetingNow() { Meetings.recordMeetingNow() }
+    @objc private func stopMeetingRecording() { Meetings.stopRecording() }
+    @objc private func openMeetingHistory() { Meetings.showHistory() }
+    @objc private func openMeetingsSettings() { SettingsWindowController.show(tab: "meetings") }
     @objc private func openFolder() {
         let dir = Preferences.shared.saveDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
