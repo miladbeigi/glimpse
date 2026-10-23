@@ -7,7 +7,7 @@
 <p align="center">
   A fast, native macOS screenshot tool that lives in your menu bar.<br>
   Capture an area, a window, a whole page. Annotate it, redact it, pin it, drag it anywhere.<br>
-  Record your screen with your camera and voice.
+  Record your screen with your camera and voice. Record your meetings and get a transcript.
 </p>
 
 <p align="center">
@@ -55,6 +55,41 @@
 
 ![Recording with the camera bubble and control bar](docs/recording.png)
 
+### Meetings
+
+Glimpse can record your video calls and turn them into a transcript, all on this Mac. Turn it on with
+**Settings › Meetings › Record meetings**.
+
+- **Notices calls** in Google Meet, Zoom, Microsoft Teams, Slack huddles, Discord, FaceTime, Webex and Tuple by
+  combining signals: a meeting window, the camera in use, call traffic on the network, your voice, and a calendar
+  event happening now. Nothing is recorded until you say so, unless you turn on **Start recording automatically**.
+- **Start Recording** from the Meetings submenu at any time, or **Join & Record** an upcoming calendar meeting.
+  When a call is detected during a calendar meeting, a card offers to record it (once per meeting).
+- **Records both sides**: your microphone on one channel and the call's system audio on the other, as a WAV file.
+  A floating indicator shows the level and elapsed time with pause and stop; `⌃⌥M` mutes your microphone system-wide
+  (the call app still shows you unmuted, but hears silence).
+- **Knows when it's over**: after a quiet stretch it asks whether the meeting ended and stops by itself if you don't
+  answer. A recording interrupted by a crash or quit is finished the next time Glimpse opens.
+- **Transcribes on-device** with Parakeet (speech to text) and a diarization model that separates speakers, both
+  from [FluidAudio](https://github.com/FluidInference/FluidAudio) and downloaded on first use. Add your name so
+  your side is labelled with it; a 15-second voice sample lets Glimpse recognise your voice when the channels
+  aren't separated, and in a one-on-one the other person's voice can be learned from the transcript so later
+  meetings name them too.
+- **Transcripts** are markdown with the title, date, duration, attendees and meeting link, then one paragraph per
+  speaker turn. They're written to `~/Glimpse/Meetings/<yyyy-MM-dd>/<yyyyMMddHHmm>-<Title>.md` (the folder is yours
+  to change in **Settings › General**) so notes apps, scripts and AI agents can read them.
+- **Transcription History** lists every recording with its transcript, attendees, timings and files; reassign a
+  recording to a different calendar event, or delete it (recording and transcript go to the Trash).
+- **Google Calendar** is optional. Sign in once (read-only access, through your own OAuth client file) and Glimpse
+  titles recordings after the event, lists attendees, and shows the next 24 hours of meetings in the menu.
+
+**Privacy.** Recording and transcription happen on your Mac: audio, transcripts, voice profiles and the calendar
+token stay in your home folder, and the only network traffic is the first-use download of the speech, speaker and
+voice-activity models (from Hugging Face) and, if you sign in, Google Calendar. The microphone is captured while a
+recording is running, during the 15-second voice enrolment, and briefly for voice-activity detection once call
+traffic and a meeting window already indicate a call. You are responsible for telling the people you record, where
+that's required.
+
 ### Quick Access Overlay
 
 Every capture slides into a corner of the screen. Hover it for **Copy** and **Save**, or use the corner
@@ -79,12 +114,13 @@ keys, or lock it so clicks pass through.
 
 ### And
 
-- Every shortcut is configurable, and captures can be scripted with `glimpse://` URLs.
-- AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots, read text and record the screen
-  through Glimpse's [MCP server](#ai-agents-mcp).
+- Every capture shortcut is configurable, and captures can be scripted with `glimpse://` URLs.
+- AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots, read text, record the screen and
+  read meeting transcripts through Glimpse's [MCP server](#ai-agents-mcp).
 - Settings for what happens after a capture (overlay, clipboard, auto-save, open editor), save folder,
   PNG or JPEG, overlay position and size, recording (frame rate, resolution, cursor, countdown, audio and
-  camera devices, bubble shape and size), and launch at login.
+  camera devices, bubble shape and size), meetings (calendar, language, speaker separation, your voice,
+  detection timing), the data folder for transcripts, and launch at login.
 
 <p align="center">
   <img src="docs/settings.png" width="420" alt="Settings">
@@ -126,7 +162,8 @@ On first launch a setup window walks you through them:
   System Audio Recording**, then click **Relaunch Glimpse**.
 - **Accessibility** (optional): only used by auto-scroll in Scrolling Capture.
 - **Camera** and **Microphone** (optional): asked the first time you record with the camera bubble or the
-  microphone.
+  microphone. Microphone is also asked when you turn on meetings; meeting recordings take the call's audio
+  through the Screen Recording permission.
 
 Release builds are ad-hoc signed, so after updating you may need to switch Glimpse off and on again in the
 Screen Recording list.
@@ -155,6 +192,7 @@ this repository can ship an update.
 | Capture Text | ⌥⇧⌘2 |
 | Restore Recently Closed | ⌥⇧⌘9 |
 | Record Screen (start / stop) | ⌥⇧⌘R |
+| Mute microphone (while meetings are on) | ⌃⌥M |
 
 The defaults stay clear of macOS's own ⇧⌘3/4/5. To use those instead, turn off the system screenshot
 shortcuts in **System Settings → Keyboard → Keyboard Shortcuts → Screenshots**, then set them in
@@ -201,7 +239,8 @@ stop after N recorded seconds. Also `pause-recording`, `resume-recording`, `rest
 ## AI agents (MCP)
 
 Glimpse includes an [MCP](https://modelcontextprotocol.io) server, so coding agents and other AI tools can see
-your screen. Turn on **Settings › Agents › Allow AI agents to take screenshots**, then connect your agent:
+your screen. Turn on **Settings › Agents › Allow AI agents to take screenshots and read meeting transcripts**,
+then connect your agent:
 
 ```sh
 claude mcp add glimpse -- /Applications/Glimpse.app/Contents/MacOS/Glimpse mcp
@@ -224,6 +263,7 @@ Other clients take the same command in their MCP config:
 | `start_recording` | Records a window, region or display to MP4 (optionally with system audio), stopping by itself after `max_duration` seconds |
 | `stop_recording` | Stops the recording and returns the file path, duration and still frames from it |
 | `recording_status` | Whether a recording is running, its id, elapsed time and limit |
+| `meeting_transcript` | The transcript of a recorded meeting, by a `time` during it or part of its `title` (and `date`); with neither, the day's recorded meetings |
 
 Screenshots come back inline, scaled to `max_size` (1568 px on the long edge by default, `0` for full size), and
 are also saved at full resolution (`save_path`, or a temporary folder); the result includes the file path and the
@@ -236,6 +276,9 @@ you can see and stop them), and stop after `max_duration` (60 s by default, 10 m
 `save_path` or a temporary folder, not the screenshots folder. `stop_recording` returns `frames` stills (4 by
 default) spread across the video so the agent can see what it recorded. If you're already recording,
 `start_recording` fails rather than taking over.
+
+`meeting_transcript` reads the transcripts Glimpse wrote (see [Meetings](#meetings)); it can't start or stop a
+meeting recording.
 
 `Glimpse mcp` does no capturing itself: it forwards calls to the Glimpse app (launching it if needed) over a
 socket only your user can open, so captures use Glimpse's Screen Recording permission, not your terminal's.
@@ -267,7 +310,12 @@ also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
 ## Development
 
 - Code is in `Sources/Glimpse` (the editor in `Sources/Glimpse/Editor`), tests in `Tests/GlimpseTests`.
+  Meetings are two library targets: `Sources/Meetings` (recording, transcription, calendar, history) and
+  `Sources/MeetingDetection` (the call-detection signals and state machine), with tests alongside.
   [`SPEC.md`](SPEC.md) describes the features and architecture.
+- Meeting recordings, history and settings live in `~/Library/Application Support/Glimpse/Meetings/`; the debug
+  log is `~/Library/Logs/Glimpse/meetings.log` (**Settings › Meetings › Debug log**). Launch with
+  `GLIMPSE_MEETINGS_UI_TEST=1` to try the meetings UI without detection, calendar polling or crash recovery.
 - `scripts/smoke-test.sh` drives real captures against the installed app through URL commands. Test settings
   are passed as launch arguments, so your saved preferences are never touched.
 - The app icon is generated by `swift scripts/make-icon.swift`.
