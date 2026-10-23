@@ -481,7 +481,7 @@ private struct AgentSettings: View {
                 command("Other MCP clients (Claude Desktop, Cursor, …)", jsonConfig)
             }
             Section {
-                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region, read_text, start_recording, stop_recording, recording_status and meeting_transcript. Screenshots are also saved as full-resolution files; meeting_transcript returns the transcript of a recorded meeting.")
+                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region, read_text, start_recording, stop_recording, recording_status, meeting_search and meeting_transcript. Screenshots are also saved as full-resolution files; meeting_search finds recorded meetings by text, attendee or date and meeting_transcript returns one.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }

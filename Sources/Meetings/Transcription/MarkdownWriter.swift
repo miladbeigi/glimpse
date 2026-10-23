@@ -9,7 +9,9 @@ enum MarkdownWriter {
         df.dateFormat = "yyyy-MM-dd HH:mm"
 
         let minutes = max(1, Int((duration / 60).rounded()))
-        var out = "# \(meeting.title)\n\n"
+        // A newline in a calendar title would break the header.
+        let title = meeting.title.components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: " ")
+        var out = "# \(title)\n\n"
         out += "**Date:** \(df.string(from: meeting.start))\n"
         out += "**Duration:** \(minutes) minute\(minutes == 1 ? "" : "s")\n"
         if !attendees.isEmpty { out += "**Attendees:** \(attendees.joined(separator: ", "))\n" }

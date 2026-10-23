@@ -116,7 +116,7 @@ keys, or lock it so clicks pass through.
 
 - Every capture shortcut is configurable, and captures can be scripted with `glimpse://` URLs.
 - AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots, read text, record the screen and
-  read meeting transcripts through Glimpse's [MCP server](#ai-agents-mcp).
+  search and read meeting transcripts through Glimpse's [MCP server](#ai-agents-mcp).
 - Settings for what happens after a capture (overlay, clipboard, auto-save, open editor), save folder,
   PNG or JPEG, overlay position and size, recording (frame rate, resolution, cursor, countdown, audio and
   camera devices, bubble shape and size), meetings (calendar, language, speaker separation, your voice,
@@ -263,7 +263,8 @@ Other clients take the same command in their MCP config:
 | `start_recording` | Records a window, region or display to MP4 (optionally with system audio), stopping by itself after `max_duration` seconds |
 | `stop_recording` | Stops the recording and returns the file path, duration and still frames from it |
 | `recording_status` | Whether a recording is running, its id, elapsed time and limit |
-| `meeting_transcript` | The transcript of a recorded meeting, by a `time` during it or part of its `title` (and `date`); with neither, the day's recorded meetings |
+| `meeting_search` | Finds recorded meetings by words in the title, attendees or what was said (`query`, all words must appear, `"quoted phrases"` kept together), `attendee`, and `from`/`to` dates; returns each meeting's date, title, attendees, transcript path and the matching paragraphs by speaker |
+| `meeting_transcript` | The transcript of a recorded meeting, by `path` from `meeting_search`, or a `time` during it or part of its `title` (and `date`); with none, the day's recorded meetings |
 
 Screenshots come back inline, scaled to `max_size` (1568 px on the long edge by default, `0` for full size), and
 are also saved at full resolution (`save_path`, or a temporary folder); the result includes the file path and the
@@ -277,8 +278,8 @@ you can see and stop them), and stop after `max_duration` (60 s by default, 10 m
 default) spread across the video so the agent can see what it recorded. If you're already recording,
 `start_recording` fails rather than taking over.
 
-`meeting_transcript` reads the transcripts Glimpse wrote (see [Meetings](#meetings)); it can't start or stop a
-meeting recording.
+`meeting_search` and `meeting_transcript` read the transcripts Glimpse wrote (see [Meetings](#meetings)), including
+ones you moved into other folders inside `Meetings/`; they can't start or stop a meeting recording.
 
 `Glimpse mcp` does no capturing itself: it forwards calls to the Glimpse app (launching it if needed) over a
 socket only your user can open, so captures use Glimpse's Screen Recording permission, not your terminal's.

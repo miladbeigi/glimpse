@@ -22,7 +22,7 @@ Target: macOS 14 Sonoma or later (ScreenCaptureKit screenshot APIs). Swift, AppK
 | Automation | `glimpse://` URL commands, optionally with explicit regions | ✅ |
 | Recording | Area / fullscreen / window-area MP4, camera bubble, microphone + system audio, pause/resume, restart, countdown, cursor & click highlighting, trimming, GIF export | ✅ all except trimming & GIF |
 | Meetings | Call detection (window, camera, network, voice, calendar), mic + system audio recording, on-device transcription with speaker diarization and voice profiles, markdown transcripts, history window, Google Calendar, system-wide mic mute | ✅ (opt-in) |
-| AI agents | MCP server (`Glimpse mcp`): list windows/displays, screenshot window/screen/region, OCR, screen recording, meeting transcripts | ✅ (opt-in; recording has its own opt-in) |
+| AI agents | MCP server (`Glimpse mcp`): list windows/displays, screenshot window/screen/region, OCR, screen recording, meeting search and transcripts | ✅ (opt-in; recording has its own opt-in) |
 | Background tool | Padding, wallpapers, presets | ❌ (v2) |
 | Cloud, History | — | ❌ |
 
@@ -192,8 +192,14 @@ Opt-in (**Settings ▸ Meetings ▸ Record meetings**, off by default). Everythi
   user's own OAuth client JSON placed in Application Support. Events from the configured calendars (default
   `primary`) for the next 24 h are refreshed hourly and when the menu opens; an event counts as "now" from 2 min
   before its start until 20 min after its end (both configurable). The token is stored next to the client file.
-- **MCP**: `meeting_transcript` (behind the Agents opt-in) returns a transcript by time or title, or lists the
-  day's recorded meetings. Agents cannot start or stop meeting recordings.
+- **MCP** (behind the Agents opt-in): `meeting_search` reads every `.md` under `<data folder>/Meetings/` (a symlinked
+  folder is resolved; hidden files, packages, symlinked files and files over 5 MB are skipped) off the main thread,
+  parses the header (only when the lines before the first `---` are `# Title` and `**Key:**` lines, so other notes
+  keep all their text), and returns meetings newest first that match all query terms
+  (`"phrases"` kept whole, case- and accent-insensitive) in title, attendees or text, an attendee substring and an
+  inclusive date range, with up to N matching speaker paragraphs each. `meeting_transcript` returns a transcript by
+  a path inside that folder (symlinks resolved), or by time or title on a date, or lists the day's recorded
+  meetings. Agents cannot start or stop meeting recordings.
 - **Privacy**: no audio, transcript or embedding leaves the machine; network use is limited to the first-use
   download of the speech, speaker and voice-activity models from Hugging Face (the last one can happen during
   detection, before any recording) and the Calendar API. The channel split made during transcription goes
@@ -228,7 +234,7 @@ Sources/Glimpse/
   Agent/ MCPBridge.swift             `Glimpse mcp`: stdio JSON-RPC, forwards tool calls to the app
          AgentServer.swift           Unix socket in Application Support, serves calls in the app
          AgentTools.swift            tool definitions + capture/OCR execution
-         MeetingTools.swift          meeting_transcript tool over the Meetings history
+         MeetingTools.swift          meeting_search and meeting_transcript tools
          AgentSocket.swift           socket and line-framing helpers
   Editor/ Annotation.swift, EditorModel.swift, Renderer.swift, CanvasView.swift,
           EditorWindowController.swift, EditorToolbar.swift
@@ -240,7 +246,8 @@ Sources/Meetings/                    library target: meeting recording and trans
   CalendarService.swift              Google Calendar OAuth (PKCE, loopback) and event matching
   Audio/                             mic + system audio capture to WAV, resampling, system-wide mic mute
   Transcription/                     pipeline, providers protocol/registry, speaker identification,
-                                     voice profiles, markdown writer, history store (SQLite)
+                                     voice profiles, markdown writer, history store (SQLite),
+                                     transcript search
   Providers/                         FluidAudio ASR, diarization and embedding providers (models cached)
   UI/                                recording indicator, notification cards, end-of-meeting prompt
   HistoryView.swift, VoiceEnrollment.swift, WindowManager.swift, GlobalHotKey.swift, Log.swift
@@ -248,7 +255,7 @@ Sources/MeetingDetection/            library target, no UI: signal detectors (wi
                                      packet rate, voice activity), aggregator rules, meeting state
                                      machine, file naming
 Tests/GlimpseTests                   stitcher, renderer, key-combo, recording timeline/writer, MCP tests
-Tests/MeetingsTests                  crash recovery, record prompt, voice profiles
+Tests/MeetingsTests                  crash recovery, record prompt, voice profiles, transcript search
 Tests/MeetingDetectionTests          end detection, WebRTC logic, file naming
 scripts/                             build, install, signing setup, smoke test, icon
 ```
