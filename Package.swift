@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         // Pinned: 0.13.7+ changed AsrManager.transcribe(_:source:) to take an inout decoder state.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.13.5"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.18.3"),
     ],
     targets: [
         // Meeting detection signals (camera, WebRTC traffic, meeting windows, voice activity).
