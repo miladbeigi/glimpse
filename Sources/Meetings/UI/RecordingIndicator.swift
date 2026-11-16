@@ -103,6 +103,8 @@ struct RecordingIndicatorView: View {
                 .overlay(Capsule().strokeBorder(model.isMuted ? UITheme.red.opacity(0.55) : UITheme.stroke, lineWidth: 1))
                 .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
         )
+        .contentShape(Capsule())
+        .movesWindowOnDrag()
         .padding(10)
         .fixedSize()
     }
@@ -152,6 +154,8 @@ struct MuteBadgeView: View {
                 .overlay(Capsule().strokeBorder(UITheme.red.opacity(0.55), lineWidth: 1))
                 .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
         )
+        .contentShape(Capsule())
+        .movesWindowOnDrag()
         .padding(10)
         .fixedSize()
     }
@@ -166,7 +170,6 @@ final class MuteBadge {
     func show(onUnmute: @escaping () -> Void) {
         guard panel == nil else { return }
         let panel = OverlayPanel(level: .statusBar)
-        panel.isMovableByWindowBackground = true
         let hosting = NSHostingView(rootView: MuteBadgeView(onUnmute: onUnmute))
         let size = hosting.fittingSize
         hosting.frame = NSRect(origin: .zero, size: size)
@@ -222,7 +225,6 @@ final class RecordingIndicator: NSObject, NSWindowDelegate {
         wasOverHour = model.elapsed >= 3600
 
         let panel = OverlayPanel(level: .statusBar)
-        panel.isMovableByWindowBackground = true
         panel.delegate = self
         self.panel = panel
         rehost()

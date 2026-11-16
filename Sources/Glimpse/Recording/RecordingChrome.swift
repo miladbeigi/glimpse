@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Meetings
 import SwiftUI
 
 /// The border around the recorded area and the floating control bar. Neither appears in the recording.
@@ -33,9 +34,7 @@ final class RecordingChrome {
             borderWindow = border
         }
 
-        let windowRef = WindowRef()
-        let host = FirstMouseHostingView(rootView: RecordingControlsView(controller: controller, target: target,
-                                                                         windowRef: windowRef))
+        let host = FirstMouseHostingView(rootView: RecordingControlsView(controller: controller, target: target))
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: host.fittingSize),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .statusBar
@@ -48,7 +47,6 @@ final class RecordingChrome {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.contentView = host
-        windowRef.window = panel
         panel.setFrameOrigin(initialOrigin(for: host.fittingSize))
         panel.orderFrontRegardless()
         controlPanel = panel
@@ -104,11 +102,10 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 private struct RecordingControlsView: View {
     @ObservedObject var controller: RecordingController
     let target: RecordingTarget
-    let windowRef: WindowRef
 
     var body: some View {
         HStack(spacing: 6) {
-            DragGrip(windowRef: windowRef)
+            DragGrip()
             switch controller.phase {
             case .recording, .paused: recording
             case .saving: saving
@@ -121,7 +118,7 @@ private struct RecordingControlsView: View {
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
         .contentShape(Capsule())
-        .moveWindowOnDrag(windowRef)
+        .movesWindowOnDrag()
         .fixedSize()
     }
 
@@ -211,8 +208,6 @@ private struct RecordingControlsView: View {
 
 /// A dotted handle at the bar's leading edge that shows it can be dragged.
 private struct DragGrip: View {
-    let windowRef: WindowRef
-
     var body: some View {
         Image(systemName: "line.3.horizontal")
             .rotationEffect(.degrees(90))
@@ -221,43 +216,8 @@ private struct DragGrip: View {
             .frame(width: 14, height: 28)
             .contentShape(Rectangle())
             .onHover { inside in if inside { NSCursor.openHand.push() } else { NSCursor.pop() } }
-            .moveWindowOnDrag(windowRef)
+            .movesWindowOnDrag()
             .help("Drag to move")
-    }
-}
-
-/// The bar's panel, filled in once the panel exists.
-@MainActor
-final class WindowRef {
-    weak var window: NSWindow?
-}
-
-private extension View {
-    /// Moves the panel with the pointer. AppKit's window dragging (`isMovableByWindowBackground`,
-    /// `performDrag`) never sees the mouse-down here because SwiftUI's hosting view takes it, so the drag is
-    /// done in SwiftUI and follows the pointer in screen coordinates.
-    func moveWindowOnDrag(_ ref: WindowRef) -> some View {
-        modifier(MoveWindowOnDrag(ref: ref))
-    }
-}
-
-private struct MoveWindowOnDrag: ViewModifier {
-    let ref: WindowRef
-    @State private var start: (mouse: NSPoint, origin: NSPoint)?
-
-    func body(content: Content) -> some View {
-        content.gesture(
-            DragGesture(minimumDistance: 2, coordinateSpace: .global)
-                .onChanged { _ in
-                    guard let window = ref.window else { return }
-                    let mouse = NSEvent.mouseLocation
-                    if start == nil { start = (mouse, window.frame.origin) }
-                    guard let start else { return }
-                    window.setFrameOrigin(NSPoint(x: start.origin.x + mouse.x - start.mouse.x,
-                                                  y: start.origin.y + mouse.y - start.mouse.y))
-                }
-                .onEnded { _ in start = nil }
-        )
     }
 }
 
