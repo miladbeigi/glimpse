@@ -16,7 +16,9 @@ struct FluidAudioTranscriptionProvider: TranscriptionProvider {
             return try await ASRGate.shared.run {
                 let asr = try await FluidAudioModels.shared.asrManager()
                 // Parakeet v3 detects the language itself; the setting is advisory.
-                let result = try await asr.transcribe(audioPath, source: .system)
+                // Each file starts from a fresh decoder state (FluidAudio 0.18 no longer keeps one per source).
+                var decoderState = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
+                let result = try await asr.transcribe(audioPath, decoderState: &decoderState)
                 let segments = Self.segments(from: result.tokenTimings ?? [], fallbackText: result.text, duration: result.duration)
                 return TranscriptionOutput(text: result.text, segments: segments, duration: result.duration, words: Self.words(from: result.tokenTimings ?? []))
             }
