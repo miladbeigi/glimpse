@@ -46,8 +46,10 @@
   or hide it.
 - **Audio** from the microphone and from the system (Glimpse's own sounds left out), mixed into one track so
   every player plays both.
-- A control bar with a timer, mic level, **pause/resume**, restart and discard. A countdown (off, 3, 5 or
-  10 seconds) before it starts; the cursor and, on macOS 15+, clicks can be shown.
+- A compact control bar with a timer, mic level, **pause/resume**, restart, camera toggle, discard and **Stop**.
+  It sits below the recorded area and stays out of the video; drag it by its grip (or anywhere that isn't a
+  button) to move it. A countdown (off, 3, 5 or 10 seconds) before it starts; the cursor and, on macOS 15+,
+  clicks can be shown.
 - While recording, the menu bar icon turns into a red dot with the elapsed time.
 - The finished video slides into the corner like a screenshot: play it, copy it, show it in Finder, trash it
   or drag the file into any app. Files are saved to the screenshots folder as
@@ -66,8 +68,10 @@ Glimpse can record your video calls and turn them into a transcript, all on this
 - **Start Recording** from the Meetings submenu at any time, or **Join & Record** an upcoming calendar meeting.
   When a call is detected during a calendar meeting, a card offers to record it (once per meeting).
 - **Records both sides**: your microphone on one channel and the call's system audio on the other, as a WAV file.
-  A floating indicator shows the level and elapsed time with pause and stop; `⌃⌥M` mutes your microphone system-wide
-  (the call app still shows you unmuted, but hears silence).
+  A floating pill, built like the screen recording bar, shows the level and elapsed time with mute, pause and stop;
+  drag it wherever it's out of the way. `⌃⌥M` mutes your microphone system-wide (the call app still shows you
+  unmuted, but hears silence); when no recording pill is on screen, a small draggable **Microphone muted** badge
+  with an **Unmute** button keeps the mute from going unnoticed.
 - **Knows when it's over**: after a quiet stretch it asks whether the meeting ended and stops by itself if you don't
   answer. A recording interrupted by a crash or quit is finished the next time Glimpse opens.
 - **Transcribes on-device** with Parakeet (speech to text) and a diarization model that separates speakers, both
