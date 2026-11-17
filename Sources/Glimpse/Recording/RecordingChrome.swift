@@ -105,21 +105,14 @@ private struct RecordingControlsView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            DragGrip()
+            BarGrip()
             switch controller.phase {
             case .recording, .paused: recording
             case .saving: saving
             default: ready
             }
         }
-        .padding(.leading, 4)
-        .padding(.trailing, 10)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-        .contentShape(Capsule())
-        .movesWindowOnDrag()
-        .fixedSize()
+        .compactBar()
     }
 
     private var sizeLabel: String {
@@ -127,20 +120,20 @@ private struct RecordingControlsView: View {
     }
 
     @ViewBuilder private var ready: some View {
-        ControlButton(symbol: controller.cameraOn ? "video.fill" : "video.slash.fill", active: controller.cameraOn,
+        BarButton(symbol: controller.cameraOn ? "video.fill" : "video.slash.fill", active: controller.cameraOn,
                       help: controller.cameraOn ? "Turn camera off" : "Turn camera on") {
             controller.setCamera(!controller.cameraOn)
         }
-        ControlButton(symbol: controller.micOn ? "mic.fill" : "mic.slash.fill", active: controller.micOn,
+        BarButton(symbol: controller.micOn ? "mic.fill" : "mic.slash.fill", active: controller.micOn,
                       help: controller.micOn ? "Don't record the microphone" : "Record the microphone") {
             controller.setMicrophone(!controller.micOn)
         }
-        ControlButton(symbol: controller.systemAudioOn ? "speaker.wave.2.fill" : "speaker.slash.fill",
+        BarButton(symbol: controller.systemAudioOn ? "speaker.wave.2.fill" : "speaker.slash.fill",
                       active: controller.systemAudioOn,
                       help: controller.systemAudioOn ? "Don't record system audio" : "Record system audio") {
             controller.setSystemAudio(!controller.systemAudioOn)
         }
-        Divider().frame(height: 22).padding(.horizontal, 2)
+        BarDivider()
         Text(sizeLabel)
             .font(.system(size: 11, weight: .medium).monospacedDigit())
             .foregroundStyle(.secondary)
@@ -157,120 +150,28 @@ private struct RecordingControlsView: View {
         }
         .buttonStyle(.plain)
         .disabled(controller.phase != .ready)
-        ControlButton(symbol: "xmark", help: "Cancel (Esc)") { controller.discard() }
+        BarButton(symbol: "xmark", help: "Cancel (Esc)") { controller.discard() }
     }
 
     @ViewBuilder private var recording: some View {
-        HStack(spacing: 7) {
-            if controller.phase == .paused {
-                Image(systemName: "pause.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(.orange)
-            } else {
-                RecordingDot()
-            }
-            Text(RecordingGeometry.formatDuration(controller.elapsed))
-                .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                .frame(minWidth: 38, alignment: .leading)
-        }
-        .padding(.leading, 6)
+        BarTimer(elapsed: RecordingGeometry.formatDuration(controller.elapsed), paused: controller.phase == .paused)
         if controller.micOn {
-            LevelMeter(level: controller.phase == .paused ? 0 : controller.micLevel)
-                .help("Microphone level")
+            BarLevelMeter(level: controller.phase == .paused ? 0 : controller.micLevel)
         }
-        Divider().frame(height: 22).padding(.horizontal, 2)
-        ControlButton(symbol: controller.phase == .paused ? "play.fill" : "pause.fill",
+        BarDivider()
+        BarButton(symbol: controller.phase == .paused ? "play.fill" : "pause.fill",
                       help: controller.phase == .paused ? "Resume" : "Pause") { controller.togglePause() }
-        ControlButton(symbol: "arrow.counterclockwise", help: "Restart") { controller.restart() }
-        ControlButton(symbol: controller.cameraOn ? "video.fill" : "video.slash.fill", active: controller.cameraOn,
+        BarButton(symbol: "arrow.counterclockwise", help: "Restart") { controller.restart() }
+        BarButton(symbol: controller.cameraOn ? "video.fill" : "video.slash.fill", active: controller.cameraOn,
                       help: controller.cameraOn ? "Hide camera" : "Show camera") {
             controller.setCamera(!controller.cameraOn)
         }
-        ControlButton(symbol: "trash", help: "Discard") { controller.discard() }
-        Button { controller.stop() } label: {
-            HStack(spacing: 5) {
-                RoundedRectangle(cornerRadius: 2).fill(.white).frame(width: 9, height: 9)
-                Text("Stop").font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .frame(height: 28)
-            .background(Capsule().fill(Color.red))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .help("Stop and save")
+        BarButton(symbol: "trash", help: "Discard") { controller.discard() }
+        BarStopButton { controller.stop() }
     }
 
     @ViewBuilder private var saving: some View {
         ProgressView().controlSize(.small)
         Text("Saving recording…").font(.system(size: 12, weight: .medium)).padding(.trailing, 6)
-    }
-}
-
-/// A dotted handle at the bar's leading edge that shows it can be dragged.
-private struct DragGrip: View {
-    var body: some View {
-        Image(systemName: "line.3.horizontal")
-            .rotationEffect(.degrees(90))
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .frame(width: 14, height: 28)
-            .contentShape(Rectangle())
-            .onHover { inside in if inside { NSCursor.openHand.push() } else { NSCursor.pop() } }
-            .movesWindowOnDrag()
-            .help("Drag to move")
-    }
-}
-
-private struct ControlButton: View {
-    let symbol: String
-    var active = true
-    let help: String
-    let action: () -> Void
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(active ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                .frame(width: 30, height: 28)
-                .background(RoundedRectangle(cornerRadius: 7).fill(.white.opacity(hovered ? 0.14 : 0)))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .help(help)
-    }
-}
-
-private struct RecordingDot: View {
-    @State private var dim = false
-
-    var body: some View {
-        Circle()
-            .fill(.red)
-            .frame(width: 10, height: 10)
-            .opacity(dim ? 0.35 : 1)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { dim = true }
-            }
-    }
-}
-
-/// Five bars that light up with the microphone level.
-private struct LevelMeter: View {
-    let level: Float
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 2) {
-            ForEach(0..<5) { i in
-                let on = level > Float(i) / 5 + 0.02
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(on ? Color.green : Color.white.opacity(0.2))
-                    .frame(width: 3, height: 6 + CGFloat(i) * 2.5)
-            }
-        }
-        .frame(height: 18)
-        .animation(.linear(duration: 0.1), value: level)
     }
 }

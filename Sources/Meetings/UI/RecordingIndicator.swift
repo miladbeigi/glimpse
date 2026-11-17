@@ -23,111 +23,32 @@ struct RecordingIndicatorView: View {
     @ObservedObject var model: RecordingIndicatorModel
 
     var body: some View {
-        HStack(spacing: 16) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.black.opacity(0.55))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-                .overlay(
-                    Group {
-                        if model.isMuted {
-                            Image(systemName: "mic.slash.fill").font(.system(size: 17, weight: .semibold)).foregroundColor(UITheme.red)
-                        } else {
-                            HStack(spacing: 5) {
-                                WaveGlyph(color: UITheme.green, height: 12)
-                                Image(systemName: "mic").font(.system(size: 17, weight: .medium)).foregroundColor(.white)
-                                WaveGlyph(color: UITheme.green, heights: [0.4, 0.85, 0.55, 1.0, 0.7, 0.35], height: 12)
-                            }
-                        }
-                    }
-                )
-                .frame(width: 60, height: 40)
-
-            HStack(alignment: .center, spacing: 3) {
-                ForEach(model.levels.indices, id: \.self) { i in
-                    Capsule().fill(model.isPaused || model.isMuted ? Color.white.opacity(0.25) : UITheme.green)
-                        .frame(width: 3.5, height: model.isPaused ? 4 : 4 + CGFloat(model.levels[i]) * 30)
-                        .animation(.easeOut(duration: 0.12), value: model.levels[i])
-                }
+        HStack(spacing: 6) {
+            BarGrip()
+            BarTimer(elapsed: formatDuration(model.elapsed), paused: model.isPaused)
+            if model.isMuted {
+                Image(systemName: "mic.slash.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(UITheme.red)
+                    .frame(height: 18)
+                    .help("Microphone muted")
+            } else {
+                BarLevelMeter(level: model.isPaused ? 0 : model.levels.last ?? 0)
             }
-            .frame(height: 36)
-
-            HStack(spacing: 10) {
-                if model.isPaused {
-                    Image(systemName: "pause.fill").font(.system(size: 10, weight: .bold)).foregroundColor(UITheme.yellow).frame(width: 10, height: 10)
-                } else {
-                    Circle().fill(UITheme.red).frame(width: 10, height: 10)
-                }
-                ZStack(alignment: .leading) {
-                    // Reserve width so digits never wrap or jitter.
-                    Text(model.elapsed >= 3600 ? "8:88:88" : "88:88").hidden()
-                    Text(formatDuration(model.elapsed))
-                }
-                .font(.system(size: 19, weight: .bold).monospacedDigit())
-                .foregroundColor(model.isPaused ? UITheme.secondaryText : .white)
-                .lineLimit(1)
-                .fixedSize()
-            }
-
+            BarDivider()
             if let toggle = model.onMuteToggle {
-                MuteButton(isMuted: model.isMuted, action: toggle)
+                BarButton(symbol: model.isMuted ? "mic.slash.fill" : "mic.fill",
+                          tint: model.isMuted ? UITheme.red : nil,
+                          help: model.isMuted ? "Unmute Microphone (⌃⌥M)" : "Mute Microphone (⌃⌥M)", action: toggle)
             }
-
             if let toggle = model.onPauseToggle {
-                Button(action: toggle) {
-                    Circle().fill(Color.white.opacity(0.10))
-                        .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
-                        .overlay(
-                            Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(model.isPaused ? UITheme.green : .white)
-                        )
-                        .frame(width: 38, height: 38)
-                }
-                .buttonStyle(.plain)
-                .help(model.isPaused ? "Resume Recording" : "Pause Recording")
+                BarButton(symbol: model.isPaused ? "play.fill" : "pause.fill",
+                          help: model.isPaused ? "Resume Recording" : "Pause Recording", action: toggle)
             }
-
-            Button(action: { model.onStop?() }) {
-                Circle().fill(Color.white.opacity(0.10))
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
-                    .overlay(RoundedRectangle(cornerRadius: 3).fill(UITheme.red).frame(width: 15, height: 15))
-                    .frame(width: 38, height: 38)
-            }
-            .buttonStyle(.plain)
-            .help("Stop Recording")
+            BarStopButton(help: "Stop Recording") { model.onStop?() }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            Capsule().fill(UITheme.tint.opacity(0.92))
-                .overlay(Capsule().fill(UITheme.red.opacity(model.isMuted ? 0.14 : 0)))
-                .overlay(Capsule().strokeBorder(model.isMuted ? UITheme.red.opacity(0.55) : UITheme.stroke, lineWidth: 1))
-                .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
-        )
-        .contentShape(Capsule())
-        .movesWindowOnDrag()
+        .compactBar(alert: model.isMuted)
         .padding(10)
-        .fixedSize()
-    }
-}
-
-/// Circular mic button: white mic when live, red crossed-out mic when muted.
-struct MuteButton: View {
-    var isMuted: Bool
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Circle().fill(isMuted ? UITheme.red.opacity(0.85) : Color.white.opacity(0.10))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
-                .overlay(
-                    Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                )
-                .frame(width: 38, height: 38)
-        }
-        .buttonStyle(.plain)
-        .help(isMuted ? "Unmute Microphone (⌃⌥M)" : "Mute Microphone (⌃⌥M)")
     }
 }
 
@@ -137,27 +58,30 @@ struct MuteBadgeView: View {
     var onUnmute: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "mic.slash.fill").font(.system(size: 16, weight: .semibold)).foregroundColor(UITheme.red)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Microphone muted").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-                Text("All apps · ⌃⌥M to toggle").font(.system(size: 11)).foregroundColor(UITheme.secondaryText)
+        HStack(spacing: 6) {
+            BarGrip()
+            Image(systemName: "mic.slash.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(UITheme.red)
+                .padding(.leading, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Microphone muted").font(.system(size: 12, weight: .semibold))
+                Text("All apps · ⌃⌥M").font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            MuteButton(isMuted: true, action: onUnmute)
+            .padding(.trailing, 4)
+            BarDivider()
+            Button(action: onUnmute) {
+                Text("Unmute").font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .background(Capsule().fill(.white.opacity(0.14)))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Unmute Microphone (⌃⌥M)")
         }
-        .padding(.leading, 18)
-        .padding(.trailing, 8)
-        .padding(.vertical, 8)
-        .background(
-            Capsule().fill(UITheme.tint.opacity(0.92))
-                .overlay(Capsule().fill(UITheme.red.opacity(0.14)))
-                .overlay(Capsule().strokeBorder(UITheme.red.opacity(0.55), lineWidth: 1))
-                .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
-        )
-        .contentShape(Capsule())
-        .movesWindowOnDrag()
+        .compactBar(alert: true)
         .padding(10)
-        .fixedSize()
     }
 }
 
@@ -170,6 +94,8 @@ final class MuteBadge {
     func show(onUnmute: @escaping () -> Void) {
         guard panel == nil else { return }
         let panel = OverlayPanel(level: .statusBar)
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.hasShadow = true
         let hosting = NSHostingView(rootView: MuteBadgeView(onUnmute: onUnmute))
         let size = hosting.fittingSize
         hosting.frame = NSRect(origin: .zero, size: size)
@@ -225,6 +151,8 @@ final class RecordingIndicator: NSObject, NSWindowDelegate {
         wasOverHour = model.elapsed >= 3600
 
         let panel = OverlayPanel(level: .statusBar)
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.hasShadow = true
         panel.delegate = self
         self.panel = panel
         rehost()
