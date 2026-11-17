@@ -1,12 +1,17 @@
 #if DEBUG
 import AppKit
+import Meetings
 
 /// DEBUG-only: renders the README screenshots in `docs/` from a sample image.
 ///
 ///   scripts/build.sh --debug
 ///   open -n build/debug/Glimpse.app --env GLIMPSE_DOCS_DIR="$PWD/docs" --env GLIMPSE_DOCS_SAMPLE=/path/sample.png
 ///
-/// `--env GLIMPSE_DOCS_ONLY=recording` renders just `recording.png` and `settings.png`.
+/// `--env GLIMPSE_DOCS_ONLY=recording` renders just `recording.png` and `settings.png`; `GLIMPSE_DOCS_ONLY=meetings`
+/// renders just `meeting.png`, `transcripts.png` and `settings-meetings.png`.
+/// `--env GLIMPSE_DOCS_CALL=/path/call.png` is the video-call window behind the meeting pill (default: the sample).
+/// Sample meetings are written to a temporary folder, never to your meeting history or transcripts. Add
+/// `--args -meetingsEnabled YES` so Settings › Meetings shows meetings turned on (not saved).
 /// `--env GLIMPSE_DOCS_AVATAR=/path/face.png` puts that picture in the camera bubble (use an AI-generated face,
 /// not a real person); without it the bubble shows a drawn silhouette.
 ///
@@ -23,6 +28,8 @@ enum DocsScenario {
             if env["GLIMPSE_DOCS_ONLY"] == "recording" {
                 await recording(sample: sample, scale: scale, out: out)
                 await settings(out: out)
+            } else if env["GLIMPSE_DOCS_ONLY"] == "meetings" {
+                await meetings(sample: sample, out: out)
             } else {
                 await run(sample: sample, scale: scale, out: out)
             }
@@ -118,17 +125,72 @@ enum DocsScenario {
 
         // 6. Screen recording: control bar and camera bubble.
         await recording(sample: sample, scale: scale, out: out)
+
+        // 7. Meetings: recording pill over a call, transcription history, Settings › Meetings.
+        await meetings(sample: sample, out: out)
     }
 
-    private static func settings(out: URL) async {
-        SettingsWindowController.show(tab: "recording")
+    private static func settings(tab: String = "recording", out: URL, name: String = "settings.png") async {
+        SettingsWindowController.show(tab: tab)
         await sleep(1)
         if let w = SettingsWindowController.shared?.window {
             w.makeFirstResponder(nil) // no focus ring on the first control
             await sleep(0.3)
-            await captureWindow(w, to: out.appendingPathComponent("settings.png"))
+            await captureWindow(w, to: out.appendingPathComponent(name))
             w.close()
         }
+    }
+
+    /// The meeting recording pill under a video call, the Transcription History window with sample meetings, and
+    /// Settings › Meetings. Meetings data goes to a temporary folder that is deleted afterwards.
+    private static func meetings(sample: CGImage, out: URL) async {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("glimpse-docs-\(UUID().uuidString)")
+        Meetings.debugUseScratchFolder(scratch)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        Meetings.debugAddSampleMeetings()
+
+        let call = ProcessInfo.processInfo.environment["GLIMPSE_DOCS_CALL"]
+            .flatMap { ImageUtil.load(url: URL(fileURLWithPath: $0))?.0 } ?? sample
+        let pill = Meetings.debugShowRecordingPill(elapsed: 23 * 60 + 41)
+        await sleep(1.2) // let the level meter move
+        var pillShot: CGImage?
+        if let pill { pillShot = try? await ScreenCapture.captureWindow(CGWindowID(pill.windowNumber)).0 }
+        Meetings.debugHideRecordingPill()
+        if let pillShot, let composite = meetingComposite(call: call, pill: pillShot) {
+            try? ImageExporter.write(composite, scale: 1, to: out.appendingPathComponent("meeting.png"))
+        } else {
+            NSLog("Glimpse docs: could not capture the meeting pill")
+        }
+
+        if let w = Meetings.debugShowHistory() {
+            await sleep(1.2)
+            w.makeFirstResponder(nil)
+            await sleep(0.3)
+            await captureWindow(w, to: out.appendingPathComponent("transcripts.png"))
+            w.close()
+        }
+
+        await settings(tab: "meetings", out: out, name: "settings-meetings.png")
+    }
+
+    /// A video-call window with the meeting recording pill centred below it.
+    private static func meetingComposite(call: CGImage, pill: CGImage) -> CGImage? {
+        let size = CGSize(width: 1100, height: 700)
+        guard let ctx = context(size) else { return nil }
+        drawWallpaper(ctx, size)
+        let windowScale = min(0.72, 900 / CGFloat(call.width))
+        let w = CGFloat(call.width) * windowScale
+        drawWindow(call, at: CGPoint(x: (size.width - w) / 2, y: 40), scale: windowScale, in: ctx, canvasHeight: size.height)
+        // The pill sits where Glimpse puts it: bottom centre, above the Dock. Captures are 2× on Retina.
+        let pillScale: CGFloat = (NSScreen.main?.backingScaleFactor ?? 2) > 1 ? 0.5 : 1
+        let r = CGRect(x: (size.width - CGFloat(pill.width) * pillScale) / 2, y: 30,
+                       width: CGFloat(pill.width) * pillScale, height: CGFloat(pill.height) * pillScale)
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 20, color: CGColor(gray: 0, alpha: 0.45))
+        ctx.interpolationQuality = .high
+        ctx.draw(pill, in: r)
+        ctx.restoreGState()
+        return ctx.makeImage()
     }
 
     /// The recording control bar and a camera bubble (a still picture, not a real camera) over the fake desktop.

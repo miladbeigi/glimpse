@@ -110,6 +110,10 @@ final class MuteBadge {
         panel?.orderOut(nil)
         panel = nil
     }
+
+    #if DEBUG
+    var debugWindow: NSWindow? { panel }
+    #endif
 }
 
 /// Recording pill: bottom-center of the active screen above the Dock.
@@ -129,6 +133,10 @@ final class RecordingIndicator: NSObject, NSWindowDelegate {
     private var pausedAt: Date?
 
     var isVisible: Bool { panel != nil }
+
+    #if DEBUG
+    var debugWindow: NSWindow? { panel }
+    #endif
 
     /// - Parameters:
     ///   - synthetic: animate a fake waveform (dev instance)

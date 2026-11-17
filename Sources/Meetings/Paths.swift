@@ -21,6 +21,12 @@ enum Paths {
 
     /// ~/Library/Application Support/Glimpse/Meetings: history, settings, recordings, voices, calendar sign-in.
     static var applicationSupport: URL {
+        #if DEBUG
+        if let dir = debugApplicationSupport {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        }
+        #endif
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("Glimpse/Meetings", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -58,7 +64,15 @@ enum Paths {
     static var calendarToken: URL { applicationSupport.appendingPathComponent("google-token.json") }
 
     /// `~`-abbreviated path for display, so UI and logs don't show the user's home directory.
-    static func display(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
+    static func display(_ url: URL) -> String {
+        #if DEBUG
+        // Docs screenshots show the usual location, not the scratch folder standing in for it.
+        if let scratch = debugApplicationSupport?.path, url.path.hasPrefix(scratch) {
+            return "~/Library/Application Support/Glimpse/Meetings" + url.path.dropFirst(scratch.count)
+        }
+        #endif
+        return (url.path as NSString).abbreviatingWithTildeInPath
+    }
 
     /// Expand a leading `~`.
     static func expand(_ path: String) -> URL {

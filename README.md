@@ -67,6 +67,8 @@ Glimpse can record your video calls and turn them into a transcript, all on this
   event happening now. Nothing is recorded until you say so, unless you turn on **Start recording automatically**.
 - **Start Recording** from the Meetings submenu at any time, or **Join & Record** an upcoming calendar meeting.
   When a call is detected during a calendar meeting, a card offers to record it (once per meeting).
+![Recording a call with the meeting pill](docs/meeting.png)
+
 - **Records both sides**: your microphone on one channel and the call's system audio on the other, as a WAV file.
   A floating pill, built like the screen recording bar, shows the level and elapsed time with mute, pause and stop;
   drag it wherever it's out of the way. `⌃⌥M` mutes your microphone system-wide (the call app still shows you
@@ -86,6 +88,12 @@ Glimpse can record your video calls and turn them into a transcript, all on this
   recording to a different calendar event, or delete it (recording and transcript go to the Trash).
 - **Google Calendar** is optional. Sign in once (read-only access, through your own OAuth client file) and Glimpse
   titles recordings after the event, lists attendees, and shows the next 24 hours of meetings in the menu.
+
+![Transcription History](docs/transcripts.png)
+
+<p align="center">
+  <img src="docs/settings-meetings.png" width="420" alt="Settings › Meetings">
+</p>
 
 **Privacy.** Recording and transcription happen on your Mac: audio, transcripts, voice profiles and the calendar
 token stay in your home folder, and the only network traffic is the first-use download of the speech, speaker and
@@ -334,6 +342,13 @@ also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
   Add `--env GLIMPSE_DOCS_ONLY=recording` to render only `recording.png` and `settings.png`. The camera bubble
   shows `--env GLIMPSE_DOCS_AVATAR=/path/face.png` (an AI-generated face, not a real person) or a drawn
   silhouette, never your camera.
+
+  `--env GLIMPSE_DOCS_ONLY=meetings` renders only `meeting.png` (the meeting pill under a video call: pass the
+  call window as `--env GLIMPSE_DOCS_CALL=/path/call.png`, otherwise the sample is used), `transcripts.png`
+  (Transcription History with sample meetings of fictional people) and `settings-meetings.png`. The sample
+  meetings, settings and voice profiles go to a temporary folder that's deleted afterwards; your meeting history
+  and transcripts are never read or written. Add `--args -meetingsEnabled YES` to show meetings turned on without
+  saving it. The renderer runs beside an installed Glimpse.
 
 ## Releasing
 

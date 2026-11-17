@@ -16,6 +16,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
         present(historyWindow)
     }
 
+    #if DEBUG
+    var debugHistoryWindow: NSWindow? { historyWindow }
+    #endif
+
     func closeAll() {
         historyWindow?.close()
     }
