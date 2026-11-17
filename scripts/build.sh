@@ -11,6 +11,8 @@
 #   GLIMPSE_SIGN_IDENTITY  codesigning identity (default: the local identity from scripts/setup-signing.sh,
 #                          else an Apple Development / Developer ID identity, else ad-hoc)
 #   ARCHS                  architectures to build (default: "arm64 x86_64")
+#   SDKROOT                SDK to build against (default: the active one, or the newest pre-27 SDK when the
+#                          Command Line Tools lack the SwiftUI macro plugin that SDK 27 needs)
 #   UPDATE_REPO            GitHub "owner/repo" the app checks for updates (default: the origin remote;
 #                          set it empty to build without updates)
 set -euo pipefail
@@ -27,10 +29,32 @@ if [[ -z "${UPDATE_REPO+x}" ]]; then
 fi
 [ "$CONFIG" = debug ] && ARCHS="$(uname -m)"
 
+# From the macOS 27 SDK on, SwiftUI's @State is a macro whose compiler plugin ships with Xcode only. With just
+# the Command Line Tools, fall back to the newest older SDK they include.
+if [ -z "${SDKROOT:-}" ]; then
+  DEV="$(xcode-select -p 2>/dev/null || true)"
+  SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
+  SDK_MAJOR="$(xcrun --show-sdk-version 2>/dev/null | cut -d. -f1)"
+  if [ "${SDK_MAJOR:-0}" -ge 27 ] && [ -z "$(find "$DEV" -name 'libSwiftUIMacros*' -print -quit 2>/dev/null)" ]; then
+    OLDER="$(ls -d "$(dirname "$SDK")"/MacOSX2[0-6].*.sdk 2>/dev/null | sort -V | tail -1 || true)"
+    if [ -n "$OLDER" ]; then
+      echo "note: no SwiftUI macro plugin for the macOS $SDK_MAJOR SDK (install Xcode for it); building with $(basename "$OLDER")"
+      export SDKROOT="$OLDER"
+    fi
+  fi
+fi
+
 BINS=()
+LOG="$(mktemp -t glimpse-build)"
+trap 'rm -f "$LOG"' EXIT
 for arch in $ARCHS; do
   FLAGS=(-c "$CONFIG" --triple "$arch-apple-macosx14.0" --scratch-path ".build/$arch")
-  swift build "${FLAGS[@]}" 2>&1 | grep -E "error|warning: |Compiling Glimpse|Build complete" | grep -v "^\[" || true
+  if ! swift build "${FLAGS[@]}" >"$LOG" 2>&1; then
+    grep -E "error" "$LOG" | grep -v "^\[" | head -40 || true
+    echo "build failed for $arch (swift build exited non-zero; nothing was packaged)"
+    exit 1
+  fi
+  grep -E "warning: |Build complete" "$LOG" | grep -v "^\[" || true
   BIN="$(swift build "${FLAGS[@]}" --show-bin-path)/Glimpse"
   [ -x "$BIN" ] || { echo "build failed for $arch"; exit 1; }
   BINS+=("$BIN")
