@@ -38,3 +38,27 @@ struct Meeting: Identifiable, Codable, Equatable, Sendable {
             attendees: [], meetingURL: nil, type: .unknown, fromCalendar: false)
     }
 }
+
+extension Meeting {
+    /// When the meeting is, for the menu: "Now" while it runs, the time today, "Tomorrow 2:00 PM",
+    /// or the weekday and time further out. The menu lists 24 hours ahead, so a recurring meeting
+    /// can appear twice at the same time of day; the day keeps the two apart.
+    func menuWhen(now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> String {
+        if start <= now && end > now { return "Now" }
+        let time = DateFormatter()
+        time.locale = locale
+        time.timeZone = calendar.timeZone
+        time.dateStyle = .none
+        time.timeStyle = .short
+        let clock = time.string(from: start)
+        if calendar.isDate(start, inSameDayAs: now) { return clock }
+        if let next = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(start, inSameDayAs: next) {
+            return "Tomorrow \(clock)"
+        }
+        let day = DateFormatter()
+        day.locale = locale
+        day.timeZone = calendar.timeZone
+        day.setLocalizedDateFormatFromTemplate("EEE")
+        return "\(day.string(from: start)) \(clock)"
+    }
+}

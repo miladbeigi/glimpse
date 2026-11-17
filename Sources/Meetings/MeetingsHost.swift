@@ -135,11 +135,9 @@ final class MeetingsMenu: NSObject {
             none.isEnabled = false
             menu.addItem(none)
         } else {
-            let tf = DateFormatter()
-            tf.timeStyle = .short
-            tf.dateStyle = .none
+            let now = Date()
             for meeting in appState.calendar.menuMeetings.prefix(10) {
-                let m = NSMenuItem(title: "    \(tf.string(from: meeting.start))  \(meeting.title)", action: nil, keyEquivalent: "")
+                let m = NSMenuItem(title: "    \(meeting.menuWhen(now: now))  \(meeting.title)", action: nil, keyEquivalent: "")
                 let sub = NSMenu()
                 let join = item("Join & Record", #selector(joinAndRecord(_:)))
                 join.representedObject = meeting.id
