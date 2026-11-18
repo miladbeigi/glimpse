@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://glimpse.miladapps.com"><strong>glimpse.miladapps.com</strong></a>
+  <a href="https://milad.cloud/glimpse/"><strong>milad.cloud/glimpse</strong></a>
 </p>
 
 <p align="center">
