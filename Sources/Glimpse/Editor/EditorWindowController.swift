@@ -17,14 +17,15 @@ final class CenteringClipView: NSClipView {
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
     private(set) static var openEditors: [EditorWindowController] = []
 
-    static func open(capture: Capture) {
+    static func open(capture: Capture, context: EditorContext = EditorContext()) {
         if let existing = openEditors.first(where: { $0.capture.id == capture.id }) {
+            if let prompt = context.agentPrompt { existing.model.agentPrompt = prompt }
             existing.showWindow(nil)
             existing.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let controller = EditorWindowController(capture: capture)
+        let controller = EditorWindowController(capture: capture, context: context)
         openEditors.append(controller)
         AppDelegate.refreshActivationPolicy()
         controller.showWindow(nil)
@@ -54,10 +55,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private(set) var canvas: CanvasView!
     private var autoFit = true
     private var closing = false
+    private var context: EditorContext
+    /// Closing because Copy moved on to the next screenshot of a batch.
+    private var advancing = false
+    /// Closing because the image was sent.
+    private var sent = false
 
-    init(capture: Capture) {
+    init(capture: Capture, context: EditorContext = EditorContext()) {
         self.capture = capture
+        self.context = context
         model = EditorModel(image: capture.baseImage, scale: capture.scale, state: capture.document)
+        model.agentPrompt = context.agentPrompt
+        if let i = context.batchIndex, context.batchCount > 1 { model.batchLabel = "\(i) of \(context.batchCount)" }
 
         let screen = NSScreen.withMouse
         let vf = screen.visibleFrame
@@ -107,12 +116,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let top = NSHostingView(rootView: EditorTopBar(model: model))
+        let prompt = NSHostingView(rootView: EditorPromptBar(model: model))
+        prompt.translatesAutoresizingMaskIntoConstraints = false
         let bottom = NSHostingView(rootView: EditorBottomBar(model: model, makeDragFile: { [weak self] in self?.dragFile() }))
         top.translatesAutoresizingMaskIntoConstraints = false
         bottom.translatesAutoresizingMaskIntoConstraints = false
 
         let container = NSView()
         container.addSubview(top)
+        container.addSubview(prompt)
         container.addSubview(scrollView)
         container.addSubview(bottom)
         NSLayoutConstraint.activate([
@@ -120,7 +132,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
             top.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             top.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             top.heightAnchor.constraint(equalToConstant: 46),
-            scrollView.topAnchor.constraint(equalTo: top.bottomAnchor),
+            prompt.topAnchor.constraint(equalTo: top.bottomAnchor),
+            prompt.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            prompt.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            prompt.heightAnchor.constraint(equalToConstant: model.agentPrompt == nil ? 0 : 40),
+            scrollView.topAnchor.constraint(equalTo: prompt.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottom.topAnchor),
@@ -143,6 +159,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         model.onSave = { [weak self] in self?.saveImage() }
         model.onSaveAs = { [weak self] in self?.saveImageAs() }
         model.onPin = { [weak self] in self?.pinImage() }
+        model.onSend = { [weak self] in self?.sendImage() }
+        refreshSendTitle()
         model.onDone = { [weak self] in self?.window?.performClose(nil) }
         model.onZoom = { [weak self] action in self?.zoom(action) }
     }
@@ -218,6 +236,35 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         guard let image = rendered() else { return }
         Clipboard.copy(image, scale: capture.scale)
         HUD.show("Copied to clipboard", symbol: "doc.on.doc.fill")
+        // Drawing on several in a row: Copy moves on to the next one.
+        if context.batchIndex != nil, !context.queue.isEmpty {
+            advancing = true
+            window?.performClose(nil)
+        }
+    }
+
+    /// Sends the image to the agent (answering it if it asked), then moves on or closes.
+    func sendImage() {
+        commitToCapture()
+        sent = true
+        let capture = capture
+        let next = context.next()
+        window?.performClose(nil)
+        DispatchQueue.main.async {
+            AgentHandoff.send([capture]) {
+                if let (nextCapture, nextContext) = next {
+                    EditorWindowController.open(capture: nextCapture, context: nextContext)
+                }
+            }
+        }
+    }
+
+    func refreshSendTitle() {
+        model.sendTitle = AgentHandoff.sendTitle(for: [capture])
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshSendTitle()
     }
 
     func saveImage() {
@@ -259,6 +306,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
     @objc func zoomToFit(_ sender: Any?) { zoom(.fit) }
     @objc func zoomActualSize(_ sender: Any?) { zoom(.actual) }
     @objc func editorPin(_ sender: Any?) { pinImage() }
+    @objc func editorSend(_ sender: Any?) { sendImage() }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
@@ -282,7 +330,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         }
         NotificationCenter.default.removeObserver(self)
         EditorWindowController.openEditors.removeAll { $0 === self }
-        if Preferences.shared.showOverlay {
+        if !sent { AgentRequests.shared.closedWithoutSending(capture) }
+        if advancing, let (next, nextContext) = context.next() {
+            DispatchQueue.main.async { EditorWindowController.open(capture: next, context: nextContext) }
+        } else if sent {
+            if context.fromStack { RecentStackController.shared.forgetPreviousApp() }
+        } else if context.fromStack {
+            RecentStackController.shared.editorDidClose(capture)
+        } else if Preferences.shared.showOverlay, context.agentPrompt == nil {
             QuickAccessManager.shared.show(capture)
         }
         DispatchQueue.main.async { AppDelegate.refreshActivationPolicy() }

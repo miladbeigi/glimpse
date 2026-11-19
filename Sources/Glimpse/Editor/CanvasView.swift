@@ -27,6 +27,10 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     private var textField: EditorTextField?
     private var editingIsNew = false
     private var originalText = ""
+    /// The box or arrow just drawn: typing now writes a note beside it.
+    private var noteAnchorID: UUID?
+    /// How the note being typed stays beside its anchor as it grows.
+    private var notePlacement: NotePlacement.Placement?
 
     @MainActor
     init(model: EditorModel) {
@@ -57,6 +61,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         }
         if model.tool != lastTool {
             lastTool = model.tool
+            noteAnchorID = nil
             if textField != nil && model.tool != .text { commitText() }
             window?.invalidateCursorRects(for: self)
         }
@@ -242,6 +247,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
+        noteAnchorID = nil
         // Clicking away from a text box only finishes editing.
         if textField != nil {
             commitText()
@@ -309,7 +315,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             model.selectedID = a.id
             drag = .moving(a.id, last: p, checkpointed: true)
         default:
-            let a = Annotation(kind: kind, start: p, end: p, points: kind.isFreehand ? [p] : [],
+            let a = Annotation(kind: kind, start: p, end: p, points: kind.isFreehand || kind == .arrow ? [p] : [],
                                color: model.color, lineWidth: model.lineWidth)
             model.checkpoint()
             model.add(a)
@@ -328,7 +334,17 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             break
         case .creating(let id):
             model.update(id) { a in
-                if a.kind.isFreehand {
+                if a.kind == .arrow {
+                    // The arrow follows the pointer like a pencil; ⇧ keeps it straight (and snaps the angle).
+                    if shift {
+                        a.points = []
+                        a.end = constrained(p, from: a.start, kind: a.kind, shift: true)
+                    } else {
+                        if a.points.isEmpty { a.points = [a.start] }
+                        if let last = a.points.last, hypot(p.x - last.x, p.y - last.y) >= 0.75 { a.points.append(p) }
+                        a.end = p
+                    }
+                } else if a.kind.isFreehand {
                     if shift, let first = a.points.first {
                         a.points = [first, CGPoint(x: p.x, y: a.kind == .highlighter ? first.y : p.y)]
                     } else if let last = a.points.last, hypot(p.x - last.x, p.y - last.y) >= 0.75 {
@@ -375,9 +391,23 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if case .creating(let id) = drag, let a = model.annotations.first(where: { $0.id == id }) {
+        if case .creating(let id) = drag, var a = model.annotations.first(where: { $0.id == id }) {
+            if a.kind == .arrow {
+                // Keep a stroke only when it really curves; otherwise it's a clean straight arrow.
+                if FreehandArrow.isNearlyStraight(a.points) {
+                    a.points = []
+                } else {
+                    a.points = FreehandArrow.simplified(a.points)
+                    a.end = a.points.last ?? a.end
+                }
+                let pts = a.points
+                let end = a.end
+                model.update(id) { $0.points = pts; $0.end = end }
+            }
             let tooSmall: Bool
-            if a.kind.isLinear {
+            if a.isCurvedArrow {
+                tooSmall = FreehandArrow.pathLength(a.points) < 3
+            } else if a.kind.isLinear {
                 tooSmall = hypot(a.end.x - a.start.x, a.end.y - a.start.y) < 3
             } else if a.kind.isBoxed {
                 tooSmall = a.rect.width < 3 || a.rect.height < 3
@@ -388,6 +418,8 @@ final class CanvasView: NSView, NSTextFieldDelegate {
                 model.annotations.removeAll { $0.id == id }
                 model.selectedID = nil
                 model.dropLastCheckpoint()
+            } else if [.arrow, .rectangle, .ellipse].contains(a.kind) {
+                noteAnchorID = id
             }
         }
         if case .cropNew = drag, model.cropDraft.width < 4 || model.cropDraft.height < 4 {
@@ -416,6 +448,12 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     }
 
     private func resize(_ a: inout Annotation, handle h: Handle, to p: CGPoint, shift: Bool) {
+        if a.isCurvedArrow, h == .start || h == .end {
+            a.points = FreehandArrow.moving(a.points, end: h == .end, to: p)
+            a.start = a.points.first ?? a.start
+            a.end = a.points.last ?? a.end
+            return
+        }
         switch h {
         case .start: a.start = constrained(p, from: a.end, kind: a.kind, shift: shift)
         case .end: a.end = constrained(p, from: a.start, kind: a.kind, shift: shift)
@@ -439,6 +477,19 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     override func keyDown(with event: NSEvent) {
         let mods = event.modifierFlags.intersection([.command, .option, .control])
         let code = Int(event.keyCode)
+
+        // Typing right after drawing a box or an arrow writes a note beside it.
+        if let anchorID = noteAnchorID {
+            noteAnchorID = nil
+            if Preferences.shared.quickNotes, mods.isEmpty, model.selectedID == anchorID,
+               let chars = event.characters, let first = chars.unicodeScalars.first,
+               !CharacterSet.controlCharacters.contains(first), !CharacterSet.whitespacesAndNewlines.contains(first),
+               first.value < 0xF700 || first.value > 0xF8FF, // not an arrow / function key
+               let anchor = model.annotations.first(where: { $0.id == anchorID }) {
+                startNote(chars, beside: anchor)
+                return
+            }
+        }
 
         if model.isCropping {
             if code == kVK_Return || code == kVK_ANSI_KeypadEnter { model.applyCrop(); return }
@@ -475,6 +526,18 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: Notes
+
+    private func startNote(_ text: String, beside anchor: Annotation) {
+        let (note, place) = NotePlacement.note(text, beside: anchor, imageSize: model.imageSize, color: model.color,
+                                               fontSize: model.fontSize, style: model.textStyle)
+        model.checkpoint()
+        model.add(note)
+        model.selectedID = note.id
+        notePlacement = place
+        beginEditing(note.id, isNew: true)
     }
 
     // MARK: Text editing
@@ -525,7 +588,15 @@ final class CanvasView: NSView, NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard let field = textField, let id = field.annotationID else { return }
         let text = field.stringValue
-        model.update(id) { $0.text = text }
+        let imageSize = model.imageSize
+        let place = notePlacement
+        model.update(id) { a in
+            a.text = text
+            if let place {
+                a.start = NotePlacement.origin(place, size: a.bounds.size, imageSize: imageSize)
+                a.end = a.start
+            }
+        }
         layoutTextField()
     }
 
@@ -548,6 +619,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         guard let field = textField else { return false }
         var discardedNew = false
         textField = nil
+        notePlacement = nil
         let id = field.annotationID
         let text = field.stringValue
         field.delegate = nil

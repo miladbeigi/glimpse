@@ -116,7 +116,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
 
 enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
     case captureArea, captureFullscreen, captureWindow, scrollingCapture, capturePreviousArea,
-         selfTimer, captureText, restoreRecent, recordScreen
+         selfTimer, captureText, restoreRecent, recordScreen, showRecent
 
     var id: String { rawValue }
 
@@ -131,6 +131,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         case .captureText: return "Capture Text (OCR)"
         case .restoreRecent: return "Restore Recently Closed"
         case .recordScreen: return "Record Screen (Start / Stop)"
+        case .showRecent: return "Recent Screenshots"
         }
     }
 
@@ -146,6 +147,7 @@ enum HotkeyAction: String, CaseIterable, Codable, Identifiable {
         case .captureText: return KeyCombo(keyCode: UInt32(kVK_ANSI_2), modifiers: m)
         case .restoreRecent: return KeyCombo(keyCode: UInt32(kVK_ANSI_9), modifiers: m)
         case .recordScreen: return KeyCombo(keyCode: UInt32(kVK_ANSI_R), modifiers: m)
+        case .showRecent: return KeyCombo(keyCode: UInt32(kVK_ANSI_0), modifiers: m)
         }
     }
 }

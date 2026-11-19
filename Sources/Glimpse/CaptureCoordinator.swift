@@ -19,6 +19,7 @@ final class CaptureCoordinator {
         case .captureText: captureText()
         case .restoreRecent: QuickAccessManager.shared.restoreRecentlyClosed()
         case .recordScreen: RecordingController.shared.toggle()
+        case .showRecent: RecentStackController.shared.toggle()
         }
     }
 
@@ -215,6 +216,7 @@ final class CaptureCoordinator {
     func deliver(_ image: CGImage, scale: CGFloat) {
         let prefs = Preferences.shared
         let capture = Capture(image: image, scale: scale)
+        RecentStore.shared.add(capture)
         Sound.playShutter()
         if prefs.copyToClipboard {
             Clipboard.copy(image, scale: scale)

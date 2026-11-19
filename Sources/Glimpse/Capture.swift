@@ -4,8 +4,8 @@ import UniformTypeIdentifiers
 /// One screenshot as it moves through overlay → editor → pin.
 @MainActor
 final class Capture {
-    let id = UUID()
-    let date = Date()
+    let id: UUID
+    let date: Date
     let baseImage: CGImage
     let scale: CGFloat
     /// Editable annotation state; nil until the capture is opened in the editor.
@@ -14,11 +14,36 @@ final class Capture {
     private(set) var image: CGImage
     var savedURL: URL?
     private var tempURL: URL?
+    /// Who made it when it wasn't the user: an agent's name ("Claude"), shown on its card.
+    var author: String?
+    /// A short caption shown on its card (an agent's option label, "Stitched", …).
+    var label: String?
 
-    init(image: CGImage, scale: CGFloat) {
+    init(image: CGImage, scale: CGFloat, id: UUID = UUID(), date: Date = Date()) {
+        self.id = id
+        self.date = date
         baseImage = image
         self.image = image
         self.scale = max(scale, 1)
+    }
+
+    /// Restores a capture with its edits (from the recent screenshots folder, or an agent's marks).
+    init(base: CGImage, rendered: CGImage, scale: CGFloat, document: EditorDocumentState?, id: UUID, date: Date) {
+        self.id = id
+        self.date = date
+        baseImage = base
+        image = rendered
+        self.scale = max(scale, 1)
+        self.document = document
+    }
+
+    /// Applies an editor state without opening the editor (used for agent marks).
+    func apply(_ document: EditorDocumentState) {
+        guard let rendered = Renderer.export(base: baseImage, scale: scale, state: document,
+                                             pixelated: document.annotations.contains { $0.kind == .pixelate } ? Renderer.pixelated(baseImage, scale: scale) : nil,
+                                             blurred: document.annotations.contains { $0.kind == .blur } ? Renderer.blurred(baseImage, scale: scale) : nil)
+        else { return }
+        update(rendered: rendered, document: document)
     }
 
     var pointSize: CGSize { CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale) }
@@ -32,6 +57,7 @@ final class Capture {
             // Keep a file the user already saved in sync with the edits.
             try? ImageExporter.write(image, scale: scale, to: url)
         }
+        RecentStore.shared.captureDidChange(self)
     }
 
     /// A file on disk suitable for drag & drop (the saved file, or a temporary copy).
@@ -184,6 +210,22 @@ enum Clipboard {
             item.setData(tiff, forType: .tiff)
         }
         pb.writeObjects([item])
+    }
+
+    /// Several images at once, one pasteboard item each (apps that take several, like Slack or Mail, get them all).
+    static func copy(images: [(CGImage, CGFloat)]) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        let items: [NSPasteboardItem] = images.map { image, scale in
+            let (out, outScale) = ImageExporter.outputImage(image, scale: scale)
+            let rep = NSBitmapImageRep(cgImage: out)
+            rep.size = CGSize(width: CGFloat(out.width) / outScale, height: CGFloat(out.height) / outScale)
+            let item = NSPasteboardItem()
+            if let png = rep.representation(using: .png, properties: [:]) { item.setData(png, forType: .png) }
+            if let tiff = rep.tiffRepresentation { item.setData(tiff, forType: .tiff) }
+            return item
+        }
+        pb.writeObjects(items)
     }
 
     /// Puts a file on the clipboard, as Finder's Copy does (pastes as an attachment in Mail, Slack, …).

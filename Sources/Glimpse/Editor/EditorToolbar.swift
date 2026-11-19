@@ -190,11 +190,28 @@ struct EditorBottomBar: View {
                 .frame(width: 30, height: 26)
                 .help("Drag the image into another app")
 
+            if let batch = model.batchLabel {
+                Text(batch)
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .help("Copy or Send moves on to the next screenshot")
+            }
             Button { model.onPin?() } label: { Label("Pin", systemImage: "pin") }
             Button { model.onCopy?() } label: { Label("Copy", systemImage: "doc.on.doc") }
             Button { model.onSave?() } label: { Label("Save", systemImage: "square.and.arrow.down") }
-            Button("Done") { model.onDone?() }
-                .buttonStyle(.borderedProminent)
+            if model.agentPrompt != nil {
+                Button { model.onSend?() } label: { Label(model.sendTitle, systemImage: "paperplane.fill") }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .help("\(model.sendTitle) (⌘↩)")
+                Button("Done") { model.onDone?() }
+            } else {
+                Button { model.onSend?() } label: { Label(model.sendTitle, systemImage: "paperplane") }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .help("\(model.sendTitle) (⌘↩)")
+                Button("Done") { model.onDone?() }
+                    .buttonStyle(.borderedProminent)
+            }
         }
         .controlSize(.regular)
         .padding(.horizontal, 12)
@@ -323,5 +340,26 @@ extension NSImage {
         image.unlockFocus()
         image.isTemplate = false
         return image
+    }
+}
+
+/// An agent's question about this screenshot, above the canvas.
+struct EditorPromptBar: View {
+    @ObservedObject var model: EditorModel
+
+    var body: some View {
+        if let prompt = model.agentPrompt {
+            HStack(spacing: 8) {
+                Circle().fill(Color(nsColor: prompt.color.nsColor)).frame(width: 9, height: 9)
+                Text(prompt.author).font(.system(size: 12, weight: .semibold))
+                Text(prompt.text).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
+                    .help(prompt.text)
+                Spacer(minLength: 8)
+                Text("Draw your answer, then ⌘↩").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: prompt.color.nsColor).opacity(0.14))
+        }
     }
 }

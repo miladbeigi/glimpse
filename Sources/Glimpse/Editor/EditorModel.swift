@@ -116,6 +116,13 @@ final class EditorModel: ObservableObject {
     @Published var cropDraft: CGRect = .zero
     @Published var magnification: CGFloat = 1
 
+    /// "Send to Claude Code", "Send to Claude" (answering it), or "Send".
+    @Published var sendTitle = "Send"
+    /// "2 of 3" while drawing on several screenshots one after another.
+    @Published var batchLabel: String?
+    /// What an agent asked about this screenshot, while it waits for the answer.
+    @Published var agentPrompt: EditorAgentPrompt?
+
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
     private var undoStack: [EditorDocumentState] = []
@@ -130,6 +137,7 @@ final class EditorModel: ObservableObject {
     var onSave: (() -> Void)?
     var onSaveAs: (() -> Void)?
     var onPin: (() -> Void)?
+    var onSend: (() -> Void)?
     var onDone: (() -> Void)?
     var onZoom: ((ZoomAction) -> Void)?
     /// Set by the canvas: finishes in-progress text editing before undo/redo.
@@ -364,4 +372,29 @@ final class EditorModel: ObservableObject {
 
     var needsPixelated: Bool { annotations.contains { $0.kind == .pixelate } }
     var needsBlurred: Bool { annotations.contains { $0.kind == .blur } }
+}
+
+struct EditorAgentPrompt: Equatable {
+    var author: String
+    var text: String
+    var color: RGBA
+}
+
+/// How the editor was opened, and what happens when it closes.
+struct EditorContext {
+    /// Opened from the recent screenshots stack: closing goes back to it.
+    var fromStack = false
+    /// The screenshots still to draw on after this one (Copy or Send moves on).
+    var queue: [Capture] = []
+    var batchIndex: Int?
+    var batchCount = 1
+    var agentPrompt: EditorAgentPrompt?
+
+    func next() -> (Capture, EditorContext)? {
+        guard let first = queue.first else { return nil }
+        var ctx = self
+        ctx.queue.removeFirst()
+        ctx.batchIndex = (batchIndex ?? 1) + 1
+        return (first, ctx)
+    }
 }
