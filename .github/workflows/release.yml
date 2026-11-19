@@ -18,14 +18,15 @@ jobs:
       - uses: actions/checkout@v7
       - name: Test
         run: swift test
-      # A stable signature (from scripts/setup-signing.sh --github) lets updates keep the Screen Recording
-      # permission; without the secret the build falls back to ad-hoc signing.
+      # Releases carry the same shared identity as local builds on every Mac (scripts/setup-signing.sh --github,
+      # pinned in scripts/signing-identity): macOS ties Screen Recording and Microphone permission to it, so any
+      # other signature would ask for them again. No release without it.
       - name: Import signing identity
         env:
           P12: ${{ secrets.GLIMPSE_SIGNING_P12 }}
           PASSWORD: ${{ secrets.GLIMPSE_SIGNING_PASSWORD }}
-        if: env.HAS_SIGNING_IDENTITY == 'true'
         run: |
+          [ "$HAS_SIGNING_IDENTITY" = true ] || { echo "::error::GLIMPSE_SIGNING_P12 isn't set: run scripts/setup-signing.sh --github"; exit 1; }
           KC="$RUNNER_TEMP/signing.keychain-db"
           echo "$P12" | base64 --decode > "$RUNNER_TEMP/id.p12"
           security create-keychain -p ci "$KC"
@@ -36,9 +37,10 @@ jobs:
           security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/id.p12"
           # By hash: the self-signed certificate isn't trusted, so codesign won't resolve it by name.
-          IDENTITY="$(security find-identity -p codesigning "$KC" | awk '/Glimpse Local Signing/ {print $2; exit}')"
-          [ -n "$IDENTITY" ] || { echo "::error::Glimpse Local Signing identity not found after import"; exit 1; }
-          echo "GLIMPSE_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          PINNED="$(tr -d '[:space:]' < scripts/signing-identity)"
+          security find-identity -p codesigning "$KC" | grep -q "$PINNED" \
+            || { echo "::error::the GLIMPSE_SIGNING_P12 secret isn't the pinned identity $PINNED (scripts/setup-signing.sh --github)"; exit 1; }
+          echo "GLIMPSE_SIGN_IDENTITY=$PINNED" >> "$GITHUB_ENV"
       - name: Build universal app and zip
         env:
           VERSION: ${{ github.ref_name }}
