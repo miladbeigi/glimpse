@@ -50,7 +50,10 @@ if [[ -z "${INSTALL_DIR:-}" ]]; then
 fi
 mkdir -p "$INSTALL_DIR"
 
-pkill -x Glimpse 2>/dev/null && sleep 1 || true
+# Quit the app only: other processes named Glimpse are the MCP servers of running agent sessions.
+osascript -e 'tell application id "com.milad.glimpse" to quit' 2>/dev/null || true
+for _ in $(seq 1 20); do pgrep -f "$INSTALL_DIR/$APP_NAME/Contents/MacOS/Glimpse\$" >/dev/null || break; sleep 0.5; done
+pkill -f "$INSTALL_DIR/$APP_NAME/Contents/MacOS/Glimpse\$" 2>/dev/null || true
 rm -rf "$INSTALL_DIR/$APP_NAME"
 mv "$tmp/unzipped/$APP_NAME" "$INSTALL_DIR/"
 xattr -dr com.apple.quarantine "$INSTALL_DIR/$APP_NAME" 2>/dev/null || true
