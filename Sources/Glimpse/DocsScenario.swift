@@ -8,7 +8,8 @@ import Meetings
 ///   open -n build/debug/Glimpse.app --env GLIMPSE_DOCS_DIR="$PWD/docs" --env GLIMPSE_DOCS_SAMPLE=/path/sample.png
 ///
 /// `--env GLIMPSE_DOCS_ONLY=recording` renders just `recording.png` and `settings.png`; `GLIMPSE_DOCS_ONLY=meetings`
-/// renders just `meeting.png`, `transcripts.png` and `settings-meetings.png`.
+/// renders just `meeting.png`, `transcripts.png` and `settings-meetings.png`; `GLIMPSE_DOCS_ONLY=overlay` renders
+/// `overlay.png` plus each thumbnail hovered on its own.
 /// `--env GLIMPSE_DOCS_CALL=/path/call.png` is the video-call window behind the meeting pill (default: the sample).
 /// Sample meetings are written to a temporary folder, never to your meeting history or transcripts. Add
 /// `--args -meetingsEnabled YES` so Settings › Meetings shows meetings turned on (not saved).
@@ -30,6 +31,10 @@ enum DocsScenario {
                 await settings(out: out)
             } else if env["GLIMPSE_DOCS_ONLY"] == "meetings" {
                 await meetings(sample: sample, out: out)
+            } else if env["GLIMPSE_DOCS_ONLY"] == "overlay" {
+                await overlay(sample: sample, scale: scale, out: out, allHovered: true)
+            } else if env["GLIMPSE_DOCS_ONLY"] == "hud" {
+                await hud(out: out)
             } else {
                 await run(sample: sample, scale: scale, out: out)
             }
@@ -40,6 +45,59 @@ enum DocsScenario {
     }
 
     private static func sleep(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
+
+    /// `hud-<n>.png`: the toast with a few of the messages it shows, to check its layout (GLIMPSE_DOCS_ONLY=hud).
+    private static func hud(out: URL) async {
+        let messages: [(String, String)] = [
+            ("Sent to Claude Code", "paperplane.fill"),
+            ("Sent to Claude Code. It reads it when the current turn ends", "paperplane.fill"),
+            ("Copied to clipboard", "doc.on.doc.fill"),
+            ("OK", "checkmark.circle.fill"),
+            ("Press ⌘V in Claude Code to attach it (allow Glimpse in Accessibility to send directly)", "paperplane"),
+        ]
+        for (i, (text, symbol)) in messages.enumerated() {
+            HUD.show(text, symbol: symbol, duration: 5)
+            await sleep(0.6)
+            if let p = NSApp.windows.first(where: { $0 is NSPanel && $0.isVisible && $0.contentView is NSVisualEffectView }),
+               let (img, _) = try? await ScreenCapture.captureWindow(CGWindowID(p.windowNumber)) {
+                try? ImageExporter.write(img, scale: 1, to: out.appendingPathComponent("hud-\(i + 1).png"))
+            }
+        }
+    }
+
+    /// `overlay.png`: two thumbnails, the newest hovered. With `allHovered` (GLIMPSE_DOCS_ONLY=overlay) it also
+    /// shows a tall one and hovers all three, writing each as `overlay-<n>.png` too, to check the buttons' layout
+    /// from the shortest thumbnail to the tallest.
+    private static func overlay(sample: CGImage, scale: CGFloat, out: URL, allHovered: Bool = false) async {
+        let chart = ImageUtil.crop(sample, toPoints: CGRect(x: 220, y: 212, width: 576, height: 254), scale: scale) ?? sample
+        if allHovered, let tall = ImageUtil.crop(sample, toPoints: CGRect(x: 0, y: 0, width: 300, height: 420), scale: scale) {
+            QuickAccessManager.shared.show(Capture(image: tall, scale: scale))
+            await sleep(0.4)
+        }
+        QuickAccessManager.shared.show(Capture(image: chart, scale: scale))
+        await sleep(0.4)
+        QuickAccessManager.shared.show(Capture(image: sample, scale: scale))
+        await sleep(0.8)
+        let panels = NSApp.windows.compactMap { $0 as? QuickAccessPanel }.filter(\.isVisible)
+            .sorted { $0.frame.minY < $1.frame.minY } // nearest the corner first
+        if allHovered { panels.last?.setKept(true) } // shows what a kept one looks like
+        for p in allHovered ? panels : Array(panels.prefix(1)) { p.contentView?.mouseEntered(with: NSEvent()) }
+        await sleep(0.5)
+        var shots: [CGImage] = []
+        for p in panels {
+            if let (img, _) = try? await ScreenCapture.captureWindow(CGWindowID(p.windowNumber)) { shots.append(img) }
+        }
+        if allHovered {
+            for (i, shot) in shots.enumerated() {
+                try? ImageExporter.write(shot, scale: 1, to: out.appendingPathComponent("overlay-\(i + 1).png"))
+            }
+        }
+        if !shots.isEmpty, let composite = overlayComposite(sample: sample, panels: Array(shots.prefix(2))) {
+            try? ImageExporter.write(composite, scale: 1, to: out.appendingPathComponent("overlay.png"))
+        }
+        QuickAccessManager.shared.closeAll()
+        await sleep(0.5)
+    }
 
     private static func run(sample: CGImage, scale: CGFloat, out: URL) async {
         // 1. Editor with annotations.
@@ -76,24 +134,8 @@ enum DocsScenario {
         await sleep(0.5)
 
         // 2. Quick Access Overlay (hovered) on a desktop-like background.
+        await overlay(sample: sample, scale: scale, out: out)
         let chart = ImageUtil.crop(sample, toPoints: CGRect(x: 220, y: 212, width: 576, height: 254), scale: scale) ?? sample
-        QuickAccessManager.shared.show(Capture(image: chart, scale: scale))
-        await sleep(0.4)
-        QuickAccessManager.shared.show(Capture(image: sample, scale: scale))
-        await sleep(0.8)
-        let panels = NSApp.windows.compactMap { $0 as? QuickAccessPanel }.filter(\.isVisible)
-            .sorted { $0.frame.minY < $1.frame.minY } // nearest the corner first
-        if let newest = panels.first { newest.contentView?.mouseEntered(with: NSEvent()) }
-        await sleep(0.5)
-        var shots: [CGImage] = []
-        for p in panels {
-            if let (img, _) = try? await ScreenCapture.captureWindow(CGWindowID(p.windowNumber)) { shots.append(img) }
-        }
-        if !shots.isEmpty, let composite = overlayComposite(sample: sample, panels: shots) {
-            try? ImageExporter.write(composite, scale: 1, to: out.appendingPathComponent("overlay.png"))
-        }
-        QuickAccessManager.shared.closeAll()
-        await sleep(0.5)
 
         // 3. Area selection with magnifier, over a fake desktop.
         if let screen = NSScreen.main {

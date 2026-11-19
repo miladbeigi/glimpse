@@ -325,8 +325,10 @@ final class ClaudePluginTests: XCTestCase {
         return dir.appendingPathComponent("plugins/glimpse/scripts")
     }
 
-    private func run(_ script: URL, _ args: [String], env: [String: String], stdin: String = "") throws -> Process {
+    private func run(_ script: URL, _ args: [String], env: [String: String], stdin: String = "",
+                     stderr: Pipe? = nil) throws -> Process {
         let p = Process()
+        if let stderr { p.standardError = stderr }
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = [script.path] + args
         p.environment = env.merging(["PATH": "/usr/bin:/bin"]) { a, _ in a }
@@ -407,5 +409,151 @@ final class ClaudePluginTests: XCTestCase {
         try Data().write(to: dead.appendingPathComponent("alive"))
         XCTAssertTrue(ClaudePlugin.liveInboxes(root: root).isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: dead.path))
+    }
+
+    /// Where no monitor runs (the Claude desktop app), `inbox.sh wait` hands requests over by exiting 2 with them on
+    /// stderr, holds them during a turn, lets one waiter run at a time and steps aside for a monitor.
+    func testWaiterDeliversBetweenTurnsAndStepsAsideForAMonitor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("glimpse-inbox-\(UUID().uuidString)")
+        let scripts = try writePlugin(inboxRoot: root)
+        // A stand-in for a Claude Code process driven over stream-json, the way the Claude app runs it.
+        let claude = Process()
+        claude.executableURL = URL(fileURLWithPath: "/bin/sh")
+        claude.arguments = ["-c", "sleep 30; :", "claude", "--output-format", "stream-json", "--input-format", "stream-json"]
+        try claude.run()
+        defer { claude.terminate() }
+        // It isn't under Claude.app: stand in for it.
+        let env = ["CLAUDE_PID": "\(claude.processIdentifier)", "GLIMPSE_INBOX_ANY_HOST": "1"]
+        let box = root.appendingPathComponent("\(claude.processIdentifier)")
+        let inbox = scripts.appendingPathComponent("inbox.sh")
+
+        // Without the stand-in, a stream-json host other than the Claude app (an SDK script) gets no waiter.
+        let sdk = try run(inbox, ["wait"], env: ["CLAUDE_PID": "\(claude.processIdentifier)"])
+        sdk.waitUntilExit()
+        XCTAssertEqual(sdk.terminationStatus, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: box.path))
+
+        try run(scripts.appendingPathComponent("turn.sh"), ["busy"], env: env).waitUntilExit()
+        let errors = Pipe()
+        let waiter = try run(inbox, ["wait"], env: env, stdin: #"{"session_id":"abc"}"#, stderr: errors)
+        Thread.sleep(forTimeInterval: 0.5)
+        // A second one (the next hook) leaves at once.
+        let second = try run(inbox, ["wait"], env: env)
+        second.waitUntilExit()
+        XCTAssertEqual(second.terminationStatus, 0)
+
+        // Live even before anything is sent; mid-turn the request waits.
+        XCTAssertEqual(ClaudePlugin.liveInboxes(root: root).first?.busy, true)
+        try ClaudePlugin.deliver("hello\nthere", to: ClaudePlugin.liveInboxes(root: root)[0])
+        Thread.sleep(forTimeInterval: 0.9)
+        XCTAssertTrue(waiter.isRunning)
+
+        // Turn over: it hands the request over and ends with 2, marking the turn it starts.
+        try run(scripts.appendingPathComponent("turn.sh"), ["idle"], env: env).waitUntilExit()
+        waiter.waitUntilExit()
+        XCTAssertEqual(waiter.terminationStatus, 2)
+        XCTAssertEqual(String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), "hello there\n")
+        XCTAssertEqual(try String(contentsOf: box.appendingPathComponent("turn"), encoding: .utf8), "busy\n")
+        // Nothing runs during that turn, but the session stays reachable until Stop starts the next waiter...
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)],
+                                              ofItemAtPath: box.appendingPathComponent("alive").path)
+        XCTAssertEqual(ClaudePlugin.liveInboxes(root: root).map(\.pid), [claude.processIdentifier])
+        // ...also when its last message only quotes the interrupt marker...
+        let transcript = root.appendingPathComponent("t.jsonl")
+        try Data((#"{"type":"assistant","message":{"content":[{"type":"text","text":"grep '[Request interrupted by user'"}]}}"#
+                  + "\n").utf8).write(to: transcript)
+        try Data((transcript.path + "\n").utf8).write(to: box.appendingPathComponent("transcript"))
+        XCTAssertEqual(ClaudePlugin.liveInboxes(root: root).count, 1)
+        // ...but not when the user interrupted that turn (no Stop comes).
+        try Data((#"{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}"# + "\n"
+                  + #"{"type":"custom-title","customTitle":"Renamed"}"# + "\n").utf8).write(to: transcript)
+        try Data((transcript.path + "\n").utf8).write(to: box.appendingPathComponent("transcript"))
+        XCTAssertTrue(ClaudePlugin.liveInboxes(root: root).isEmpty)
+        try FileManager.default.removeItem(at: box.appendingPathComponent("transcript"))
+
+        // SessionEnd stops the waiter, so Claude Code isn't kept from exiting.
+        try run(scripts.appendingPathComponent("turn.sh"), ["idle"], env: env).waitUntilExit()
+        let fourth = try run(inbox, ["wait"], env: env)
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(fourth.isRunning)
+        try run(scripts.appendingPathComponent("turn.sh"), ["end"], env: env).waitUntilExit()
+        fourth.waitUntilExit()
+        XCTAssertNotEqual(fourth.terminationStatus, 2)
+
+        // With a monitor running, a waiter leaves it the inbox.
+        let monitor = try run(inbox, [], env: env)
+        defer { monitor.terminate() }
+        Thread.sleep(forTimeInterval: 0.3)
+        let third = try run(inbox, ["wait"], env: env)
+        third.waitUntilExit()
+        XCTAssertEqual(third.terminationStatus, 0)
+    }
+
+    /// `claude -p` waits for asyncRewake hooks before it exits, so a waiter must not stay with it.
+    func testWaiterLeavesOneShotRunsAtOnce() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("glimpse-inbox-\(UUID().uuidString)")
+        let scripts = try writePlugin(inboxRoot: root)
+        let claude = Process()
+        claude.executableURL = URL(fileURLWithPath: "/bin/sh")
+        claude.arguments = ["-c", "sleep 30; :", "claude", "-p", "--output-format", "stream-json"]
+        try claude.run()
+        defer { claude.terminate() }
+        let waiter = try run(scripts.appendingPathComponent("inbox.sh"), ["wait"], env: ["CLAUDE_PID": "\(claude.processIdentifier)"])
+        waiter.waitUntilExit()
+        XCTAssertEqual(waiter.terminationStatus, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(claude.processIdentifier)").path))
+    }
+
+    /// A request claimed by a process that died before printing it goes back in line.
+    func testRequestClaimedByADeadProcessIsDeliveredAgain() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("glimpse-inbox-\(UUID().uuidString)")
+        let scripts = try writePlugin(inboxRoot: root)
+        let claude = Process()
+        claude.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        claude.arguments = ["20"]
+        try claude.run()
+        defer { claude.terminate() }
+        let box = root.appendingPathComponent("\(claude.processIdentifier)")
+        try FileManager.default.createDirectory(at: box, withIntermediateDirectories: true)
+        try Data("lost\n".utf8).write(to: box.appendingPathComponent("1-a.line.999999"))
+        let output = Pipe()
+        let monitor = Process()
+        monitor.executableURL = URL(fileURLWithPath: "/bin/sh")
+        monitor.arguments = [scripts.appendingPathComponent("inbox.sh").path]
+        monitor.environment = ["CLAUDE_PID": "\(claude.processIdentifier)", "PATH": "/usr/bin:/bin"]
+        monitor.standardOutput = output
+        try monitor.run()
+        Thread.sleep(forTimeInterval: 0.8)
+        monitor.terminate()
+        monitor.waitUntilExit()
+        XCTAssertEqual(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), "lost\n")
+    }
+
+    func testTitleIsTheLatestCustomTitleElseTheGeneratedOne() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("transcript-\(UUID().uuidString).jsonl")
+        let lines = [
+            #"{"type":"ai-title","aiTitle":"Made up","sessionId":"a"}"#,
+            #"{"type":"user","message":{"content":"\"type\":\"custom-title\" in a message"}}"#,
+        ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        XCTAssertEqual(ClaudePlugin.title(ofTranscript: url), "Made up")
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        handle.write(Data((#"{"type":"custom-title","customTitle":"Fix the \"login\" bug","sessionId":"a"}"# + "\n").utf8))
+        handle.write(Data((#"{"type":"ai-title","aiTitle":"Later","sessionId":"a"}"# + "\n").utf8))
+        try handle.close()
+        XCTAssertEqual(ClaudePlugin.title(ofTranscript: url), "Fix the \"login\" bug")
+        XCTAssertNil(ClaudePlugin.title(ofTranscript: url.appendingPathExtension("missing")))
+    }
+
+    func testHooksStartAWaiterAtEveryTurnEdge() throws {
+        let text = try XCTUnwrap(ClaudePlugin.files["plugins/glimpse/hooks/hooks.json"])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let hooks = try XCTUnwrap(object["hooks"] as? [String: [[String: Any]]])
+        for event in ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure"] {
+            let commands = try XCTUnwrap(hooks[event]?.first?["hooks"] as? [[String: Any]], event)
+            let wait = try XCTUnwrap(commands.first { ($0["command"] as? String)?.hasSuffix("inbox.sh wait") == true }, event)
+            XCTAssertEqual(wait["asyncRewake"] as? Bool, true, event)
+        }
     }
 }

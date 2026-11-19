@@ -11,24 +11,9 @@ enum HUD {
         hideWork?.cancel()
         panel?.orderOut(nil)
 
-        let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 13, weight: .semibold)
-        label.textColor = .white
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 2
-
-        let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 15, weight: .semibold))
-        icon.contentTintColor = .white
-
-        let stack = NSStackView(views: [icon, label])
-        stack.orientation = .horizontal
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 18)
-
-        let width = min(max(stack.fittingSize.width, 120), 520)
-        let height = max(stack.fittingSize.height, 40)
+        let content = HUDContent(text: text, symbol: symbol, maxWidth: 520)
+        let width = min(max(content.fittingWidth, 120), 520)
+        let height = content.height
         let screen = NSScreen.withMouse
         let frame = NSRect(x: screen.visibleFrame.midX - width / 2, y: screen.visibleFrame.minY + 90, width: width, height: height)
 
@@ -49,9 +34,9 @@ enum HUD {
         bg.wantsLayer = true
         bg.layer?.cornerRadius = height / 2
         bg.layer?.masksToBounds = true
-        stack.frame = bg.bounds
-        stack.autoresizingMask = [.width, .height]
-        bg.addSubview(stack)
+        content.frame = bg.bounds
+        content.autoresizingMask = [.width, .height]
+        bg.addSubview(content)
         p.contentView = bg
         p.alphaValue = 0
         p.orderFrontRegardless()
@@ -65,6 +50,73 @@ enum HUD {
         }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+    }
+}
+
+/// The toast's icon and text, drawn so both sit on the pill's centre line: the icon by its middle, one line of text
+/// by the middle of its capitals (a label's frame also holds the descenders, which pushes the words off centre).
+/// Text too long for one line wraps to two in a taller pill, so a hint or an error's details aren't cut off.
+private final class HUDContent: NSView {
+    private let text: String
+    private let icon: NSImage?
+    /// Whether the text needs two lines to fit `maxWidth`.
+    private let wraps: Bool
+    private static let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    private static let left: CGFloat = 16, right: CGFloat = 18, gap: CGFloat = 8
+    private static let lineHeight = NSLayoutManager().defaultLineHeight(for: font)
+    private var attributes: [NSAttributedString.Key: Any] { [.font: Self.font, .foregroundColor: NSColor.white] }
+
+    init(text: String, symbol: String, maxWidth: CGFloat) {
+        // Drawn as one line, anything after a newline would vanish.
+        self.text = text.split(whereSeparator: \.isNewline).joined(separator: " ")
+        icon = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [.white])))
+        let iconWidth = icon.map { $0.size.width + Self.gap } ?? 0
+        let textWidth = (self.text as NSString).size(withAttributes: [.font: Self.font]).width
+        wraps = Self.left + iconWidth + textWidth + Self.right > maxWidth
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private var iconWidth: CGFloat { icon.map { $0.size.width + Self.gap } ?? 0 }
+
+    var fittingWidth: CGFloat {
+        (Self.left + iconWidth + (text as NSString).size(withAttributes: attributes).width + Self.right).rounded(.up)
+    }
+
+    var height: CGFloat { wraps ? (Self.lineHeight * 2 + 20).rounded(.up) : 40 }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let mid = bounds.midY
+        var x = Self.left
+        if let icon {
+            let s = icon.size
+            icon.draw(in: NSRect(x: x, y: mid - s.height / 2, width: s.width, height: s.height))
+            x += iconWidth
+        }
+        let width = bounds.width - x - Self.right
+        if wraps {
+            // Two lines at most, centred as a block; the second ends in "…" if it still doesn't fit.
+            let height = Self.lineHeight * 2
+            (text as NSString).draw(with: NSRect(x: x, y: mid - height / 2, width: width, height: height),
+                                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes)
+            return
+        }
+        let line = fitted(text, width: width) as NSString
+        // Without .usesLineFragmentOrigin the rect's origin is the baseline.
+        let baseline = mid - Self.font.capHeight / 2
+        line.draw(with: NSRect(x: x, y: baseline, width: width, height: 0), options: [], attributes: attributes)
+    }
+
+    /// The text, cut short with an ellipsis if it's wider than `width`.
+    private func fitted(_ s: String, width: CGFloat) -> String {
+        func w(_ t: String) -> CGFloat { (t as NSString).size(withAttributes: attributes).width }
+        guard w(s) > width else { return s }
+        var t = s
+        while !t.isEmpty, w(t + "…") > width { t.removeLast() }
+        return t.trimmingCharacters(in: .whitespaces) + "…"
     }
 }
 

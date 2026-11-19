@@ -120,9 +120,19 @@ final class QuickAccessManager {
         EditorWindowController.open(capture: capture)
     }
 
+    /// Pin to Screen: the screenshot as a floating window of its own (right-click menu). The thumbnail's pin button
+    /// keeps the thumbnail itself instead (`QuickAccessPanel.isKept`).
     func pin(_ panel: QuickAccessPanel) {
         PinWindowController.pin(capture: panel.capture)
         close(panel)
+    }
+
+    /// Moves the screenshot from its thumbnail to the recent screenshots stack, focused on it there.
+    func showInRecent(_ panel: QuickAccessPanel) {
+        let capture = panel.capture
+        if !RecentStore.shared.captures.contains(where: { $0.id == capture.id }) { RecentStore.shared.add(capture) }
+        close(panel, remember: false)
+        RecentStackController.shared.show(focus: capture.id)
     }
 
     func recognizeText(_ panel: QuickAccessPanel) {
@@ -213,11 +223,22 @@ final class QuickAccessPanel: QuickAccessStackPanel {
         scheduleAutoClose()
     }
 
+    /// Kept thumbnails don't close by themselves: the pin button toggles it, and Send turns it on so a send you change
+    /// your mind about leaves the thumbnail where it was.
+    private(set) var isKept = false
+
+    func setKept(_ kept: Bool) {
+        guard kept != isKept else { return }
+        isKept = kept
+        thumbView.keptChanged(kept)
+        scheduleAutoClose()
+    }
+
     func scheduleAutoClose() {
         closeTimer?.invalidate()
         closeTimer = nil
         let seconds = Preferences.shared.overlayAutoClose
-        guard seconds > 0 else { return }
+        guard seconds > 0, !isKept else { return }
         closeTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(seconds), repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -244,24 +265,35 @@ final class QuickAccessPanel: QuickAccessStackPanel {
         case .saveAs: manager.saveAs(self)
         case .annotate: manager.annotate(self)
         case .pin: manager.pin(self)
+        case .keep: setKept(!isKept)
+        case .showInRecent: manager.showInRecent(self)
         case .text: manager.recognizeText(self)
         case .close: manager.close(self)
         case .reveal: manager.reveal(self)
         case .send:
             let capture = self.capture
-            manager.close(self)
-            AgentHandoff.send([capture])
+            // With several sessions running, the overlay stays up while you pick one. It's kept from here on: if you
+            // close the menu (or click elsewhere), the thumbnail is still there when you come back to it.
+            setKept(true)
+            AgentHandoff.send([capture], close: { [weak self, weak manager] in
+                guard let self else { return }
+                manager?.close(self)
+            })
         }
     }
 }
 
 /// Circular icon button with a light background, used on the hover layer.
 final class OverlayIconButton: NSButton {
+    static let side: CGFloat = 26
+
     convenience init(symbol: String, tooltip: String, target: AnyObject, action: Selector) {
-        self.init(frame: NSRect(x: 0, y: 0, width: 26, height: 26))
+        self.init(frame: NSRect(x: 0, y: 0, width: OverlayIconButton.side, height: OverlayIconButton.side))
+        // One size and weight for every glyph, drawn at its natural size in the middle of the circle.
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .bold))
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold, scale: .medium))
         imagePosition = .imageOnly
+        imageScaling = .scaleNone
         isBordered = false
         toolTip = tooltip
         self.target = target
@@ -292,7 +324,7 @@ final class OverlayPillButton: NSButton {
 }
 
 final class QuickAccessView: NSView, NSDraggingSource {
-    enum Action { case copy, save, saveAs, annotate, pin, text, close, reveal, send }
+    enum Action { case copy, save, saveAs, annotate, pin, keep, showInRecent, text, close, reveal, send }
 
     private weak var panel: QuickAccessPanel?
     private let imageLayer = CALayer()
@@ -325,22 +357,59 @@ final class QuickAccessView: NSView, NSDraggingSource {
         hoverLayerView.alphaValue = 0
         addSubview(hoverLayerView)
 
-        let copy = OverlayPillButton(title: "Copy", target: self, action: #selector(copyAction))
-        let save = OverlayPillButton(title: "Save", target: self, action: #selector(saveAction))
-        let close = OverlayIconButton(symbol: "xmark", tooltip: "Close", target: self, action: #selector(closeAction))
-        let edit = OverlayIconButton(symbol: "pencil", tooltip: "Annotate", target: self, action: #selector(annotateAction))
-        let pin = OverlayIconButton(symbol: "pin.fill", tooltip: "Pin to screen", target: self, action: #selector(pinAction))
-        let text = OverlayIconButton(symbol: "text.viewfinder", tooltip: "Copy text (OCR)", target: self, action: #selector(textAction))
-        copy.identifier = NSUserInterfaceItemIdentifier("copy")
-        save.identifier = NSUserInterfaceItemIdentifier("save")
-        close.identifier = NSUserInterfaceItemIdentifier("close")
-        edit.identifier = NSUserInterfaceItemIdentifier("edit")
-        pin.identifier = NSUserInterfaceItemIdentifier("pin")
-        text.identifier = NSUserInterfaceItemIdentifier("text")
-        [copy, save, close, edit, pin, text].forEach(hoverLayerView.addSubview)
+        copyButton = OverlayPillButton(title: "Copy", target: self, action: #selector(copyAction))
+        saveButton = OverlayPillButton(title: "Save", target: self, action: #selector(saveAction))
+        closeButton = OverlayIconButton(symbol: "xmark", tooltip: "Close", target: self, action: #selector(closeAction))
+        // Fixed text: naming the session would mean scanning the running processes on every hover.
+        sendButton = OverlayIconButton(symbol: "paperplane", tooltip: "Send to your Claude Code session", target: self,
+                                       action: #selector(sendAction))
+        keepButton = OverlayIconButton(symbol: "pin", tooltip: Self.keepTip(false), target: self, action: #selector(keepAction))
+        // The bottom row, left to right.
+        tools = [
+            OverlayIconButton(symbol: "pencil", tooltip: "Draw on it", target: self, action: #selector(annotateAction)),
+            keepButton,
+            OverlayIconButton(symbol: "text.viewfinder", tooltip: "Copy text (OCR)", target: self, action: #selector(textAction)),
+            OverlayIconButton(symbol: "rectangle.stack", tooltip: "Show in Recent Screenshots", target: self,
+                              action: #selector(showInRecentAction)),
+            sendButton,
+        ]
+        ([copyButton, saveButton, closeButton] + tools).forEach(hoverLayerView.addSubview)
+
+        // Says the thumbnail is kept while the buttons are hidden.
+        keptBadge.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Kept")?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
+        keptBadge.contentTintColor = .white
+        keptBadge.wantsLayer = true
+        keptBadge.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        keptBadge.layer?.cornerRadius = 9
+        keptBadge.isHidden = true
+        addSubview(keptBadge)
 
         refresh()
     }
+
+    private var keepButton: OverlayIconButton!
+    private let keptBadge = NSImageView()
+
+    private static func keepTip(_ kept: Bool) -> String {
+        kept ? "Kept on screen: click to let it close by itself" : "Keep on screen (don't close by itself)"
+    }
+
+    /// The pin button shows whether the thumbnail is kept; so does a badge in the corner when the pointer is away.
+    func keptChanged(_ kept: Bool) {
+        keepButton.image = NSImage(systemSymbolName: kept ? "pin.fill" : "pin", accessibilityDescription: "Keep")?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold, scale: .medium))
+        keepButton.contentTintColor = kept ? .white : NSColor(white: 0.1, alpha: 1)
+        keepButton.layer?.backgroundColor = (kept ? NSColor.controlAccentColor : NSColor(white: 1, alpha: 0.92)).cgColor
+        keepButton.toolTip = Self.keepTip(kept)
+        keptBadge.isHidden = !kept || isHovered
+    }
+
+    private var copyButton: OverlayPillButton!
+    private var saveButton: OverlayPillButton!
+    private var closeButton: OverlayIconButton!
+    private var sendButton: OverlayIconButton!
+    private var tools: [OverlayIconButton] = []
 
     required init?(coder: NSCoder) { fatalError() }
 
@@ -357,28 +426,66 @@ final class QuickAccessView: NSView, NSDraggingSource {
         imageLayer.frame = bounds
         CATransaction.commit()
         hoverLayerView.frame = bounds
-        let b = bounds
-        for v in hoverLayerView.subviews {
-            let s = v.frame.size
-            switch v.identifier?.rawValue {
-            case "copy": v.frame.origin = NSPoint(x: b.midX - s.width / 2, y: b.midY + 3)
-            case "save": v.frame.origin = NSPoint(x: b.midX - s.width / 2, y: b.midY - s.height - 3)
-            case "close": v.frame.origin = NSPoint(x: 7, y: b.maxY - s.height - 7)
-            case "edit": v.frame.origin = NSPoint(x: b.maxX - s.width - 7, y: b.maxY - s.height - 7)
-            case "pin": v.frame.origin = NSPoint(x: 7, y: 7)
-            case "text": v.frame.origin = NSPoint(x: b.maxX - s.width - 7, y: 7)
-            default: break
+        keptBadge.frame = NSRect(x: bounds.maxX - 24, y: bounds.maxY - 24, width: 18, height: 18)
+        for (view, frame) in Self.layout(in: bounds, tools: tools.count) {
+            switch view {
+            case .close: closeButton.frame = frame
+            case .copy: copyButton.frame = frame
+            case .save: saveButton.frame = frame
+            case .tool(let i): tools[i].frame = frame
             }
         }
     }
 
+    enum Slot: Hashable { case close, copy, save, tool(Int) }
+
+    /// Close in the top-left corner; the tools in one centred, evenly spaced row along the bottom; Copy and Save in
+    /// the middle, stacked when there's room, side by side when not, and up beside Close on the shortest thumbnails.
+    static func layout(in b: NSRect, tools: Int) -> [Slot: NSRect] {
+        let inset: CGFloat = 7, side = OverlayIconButton.side
+        // Narrower gaps when the row would otherwise reach the edges (the small size).
+        let gap = tools > 1 ? min(8, ((b.width - inset * 2 - CGFloat(tools) * side) / CGFloat(tools - 1)).rounded(.down)) : 8
+        let pillHeight: CGFloat = 28, pillGap: CGFloat = 6
+        var frames: [Slot: NSRect] = [:]
+        frames[.close] = NSRect(x: b.minX + inset, y: b.maxY - inset - side, width: side, height: side)
+        let rowWidth = CGFloat(tools) * side + CGFloat(max(tools - 1, 0)) * gap
+        for i in 0..<tools {
+            frames[.tool(i)] = NSRect(x: (b.midX - rowWidth / 2 + CGFloat(i) * (side + gap)).rounded(), y: b.minY + inset,
+                                      width: side, height: side)
+        }
+        // Between the top row and the bottom row.
+        let middle = NSRect(x: b.minX + inset, y: b.minY + inset + side + pillGap, width: b.width - inset * 2,
+                            height: b.height - (inset + side + pillGap) * 2)
+        let pillWidth: CGFloat = 84
+        if middle.height >= pillHeight * 2 + pillGap {
+            let top = (middle.midY + pillGap / 2).rounded()
+            frames[.copy] = NSRect(x: (b.midX - pillWidth / 2).rounded(), y: top, width: pillWidth, height: pillHeight)
+            frames[.save] = NSRect(x: (b.midX - pillWidth / 2).rounded(), y: top - pillGap - pillHeight, width: pillWidth,
+                                   height: pillHeight)
+            return frames
+        }
+        // Side by side: in the middle if it's tall enough, else in the top row to the right of Close.
+        let inMiddle = middle.height >= pillHeight
+        let area = inMiddle ? middle
+            : NSRect(x: b.minX + inset + side + pillGap, y: b.maxY - inset - pillHeight + (pillHeight - side) / 2,
+                     width: b.width - inset * 2 - side - pillGap, height: pillHeight)
+        let width = min(pillWidth, ((area.width - pillGap) / 2).rounded(.down))
+        let left = (area.midX - width - pillGap / 2).rounded()
+        let y = inMiddle ? (area.midY - pillHeight / 2).rounded() : area.minY
+        frames[.copy] = NSRect(x: left, y: y, width: width, height: pillHeight)
+        frames[.save] = NSRect(x: left + width + pillGap, y: y, width: width, height: pillHeight)
+        return frames
+    }
+
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
+        keptBadge.isHidden = true // the pin button says it now
         NSAnimationContext.runAnimationGroup { $0.duration = 0.12; hoverLayerView.animator().alphaValue = 1 }
     }
 
     override func mouseExited(with event: NSEvent) {
         isHovered = false
+        keptBadge.isHidden = panel?.isKept != true
         NSAnimationContext.runAnimationGroup { $0.duration = 0.15; hoverLayerView.animator().alphaValue = 0 }
     }
 
@@ -441,7 +548,9 @@ final class QuickAccessView: NSView, NSDraggingSource {
         add("Save As…", #selector(saveAsAction))
         menu.addItem(.separator())
         add("Annotate", #selector(annotateAction))
+        add(panel?.isKept == true ? "Let It Close by Itself" : "Keep on Screen", #selector(keepAction))
         add("Pin to Screen", #selector(pinAction))
+        add("Show in Recent Screenshots", #selector(showInRecentAction))
         add("Copy Text (OCR)", #selector(textAction))
         if let capture = panel?.capture {
             add(MainActor.assumeIsolated { AgentHandoff.sendTitle(for: [capture]) }, #selector(sendAction))
@@ -459,6 +568,8 @@ final class QuickAccessView: NSView, NSDraggingSource {
     @objc private func saveAsAction() { panel?.perform(.saveAs) }
     @objc private func annotateAction() { panel?.perform(.annotate) }
     @objc private func pinAction() { panel?.perform(.pin) }
+    @objc private func keepAction() { panel?.perform(.keep) }
+    @objc private func showInRecentAction() { panel?.perform(.showInRecent) }
     @objc private func textAction() { panel?.perform(.text) }
     @objc private func closeAction() { panel?.perform(.close) }
     @objc private func revealAction() { panel?.perform(.reveal) }
