@@ -389,7 +389,7 @@ macOS ties the Screen Recording and Microphone permissions to the app's signing 
 carries one shared self-signed identity: local builds on any Mac and the GitHub releases alike. Installing a
 local build over a release, a release over a local build, or either on another Mac then never asks for them
 again. `scripts/signing-identity` pins its SHA-1; `build.sh` warns about (and `--install` refuses) any other
-signature, and the Release workflow fails without it.
+signature. The Release workflow signs with the identity in the repo's Actions secrets (`--github` below).
 
 On a new Mac, import the identity once from the file kept in your password manager:
 
