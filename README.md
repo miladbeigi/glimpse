@@ -385,10 +385,22 @@ scripts/build.sh --zip       # also write build/Glimpse-<version>.zip and .sha25
 scripts/build.sh --debug     # debug build in build/debug/Glimpse.app
 ```
 
-macOS ties the Screen Recording permission to the app's signature, so ad-hoc builds lose it on every rebuild.
-For development, create a local signing identity once with `scripts/setup-signing.sh` (it lives in its own
-keychain under `~/Library/Application Support/Glimpse-dev/`); `build.sh` then uses it automatically. You can
-also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
+macOS ties the Screen Recording and Microphone permissions to the app's signing certificate, so every build
+carries one shared self-signed identity: local builds on any Mac and the GitHub releases alike. Installing a
+local build over a release, a release over a local build, or either on another Mac then never asks for them
+again. `scripts/signing-identity` pins its SHA-1; `build.sh` warns about (and `--install` refuses) any other
+signature, and the Release workflow fails without it.
+
+On a new Mac, import the identity once from the file kept in your password manager:
+
+```bash
+scripts/setup-signing.sh --import glimpse-signing.p12   # asks for the file's password
+scripts/setup-signing.sh --check
+```
+
+It lives in its own keychain under `~/Library/Application Support/Glimpse-dev/`. `--export FILE.p12` writes it
+out again, `--github` puts it in the repo's Actions secrets for releases, and `--new` only exists to replace it
+everywhere.
 
 ## Development
 
