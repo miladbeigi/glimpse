@@ -421,7 +421,7 @@ private struct OverlaySettings: View {
             } header: {
                 Text("Recent screenshots")
             } footer: {
-                Text("Your last \(RecentStore.limit) screenshots, as cards at the edge of the screen. Click one to draw on it; ⌘-click to select several, then Copy ⌘C, Draw ↩ (one after another), Stitch ⌘S, Send ⌘↩ or Remove ⌘⌫. Drag cards into any app. Double-tapping Shift needs the Accessibility permission. Kept screenshots stay in ~/Library/Application Support/Glimpse/Recent.")
+                Text("Your last \(RecentStore.limit) screenshots, as cards at the edge of the screen. Click one to draw on it; ⌘-click to select several, then Copy ⌘C, Draw ↩ (one after another), Stitch ⌘S, Send ⌘↩ or Remove ⌘⌫; Remove All ⌘⇧⌫ empties the stack. Drag cards into any app. Double-tapping Shift needs the Accessibility permission. Kept screenshots stay in ~/Library/Application Support/Glimpse/Recent.")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -617,7 +617,7 @@ private struct ClaudePluginSection: View {
         } header: {
             Text("Send")
         } footer: {
-            Text("Send (⌘↩ in the editor and the recent screenshots stack) goes to the Claude Code session whose window you used last. With the plugin, it arrives as a message in that session, even while Claude is busy (it waits for the turn to end), without typing into your terminal. Sessions already running pick the plugin up after /reload-plugins or a restart.")
+            Text("Send (⌘↩ in the editor and the recent screenshots stack) goes to your Claude Code session; with several running, it asks which, the one whose window you used last first. With the plugin, it arrives as a message in that session, even while Claude is busy (it waits for the turn to end), without typing into your terminal. Sessions already running pick the plugin up after /reload-plugins or a restart.")
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

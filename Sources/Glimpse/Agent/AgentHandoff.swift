@@ -4,8 +4,9 @@ import Darwin
 
 /// Send: hands screenshots to the Claude Code or Codex session you were just in.
 ///
-/// When an agent is waiting for an answer (ask_user, ask_user_to_choose), Send answers it. Otherwise it picks the
-/// session whose window was in front most recently:
+/// When an agent is waiting for an answer (ask_user, ask_user_to_choose), Send answers it. Otherwise, with one
+/// session running it goes there; with several, a menu lists them, the one whose window was in front most recently
+/// first. Either way:
 /// - a Claude Code session with Glimpse's plugin gets the image through its inbox (`ClaudePlugin`): no typing, no
 ///   Accessibility, and a request sent mid-turn waits for the turn to end;
 /// - any other `claude` or `codex` in a terminal gets the image's path pasted into its prompt (both attach a pasted
@@ -26,24 +27,50 @@ enum AgentHandoff {
 
     // MARK: Send
 
-    /// `then` runs once the image has reached the agent (or the clipboard), e.g. to open the next one of a batch.
-    static func send(_ captures: [Capture], then: (() -> Void)? = nil) {
+    /// `close` puts away the window Send was pressed in. It runs once the destination is settled, so a session menu
+    /// opens while that window is still up: closing it first hands the front to another app, which shuts the menu.
+    /// Closing the menu sends nothing and runs neither `close` nor `then`. `then` runs once the image has reached the
+    /// agent (or the clipboard), e.g. to open the next one of a batch. `restoreFront`: when Send came from outside
+    /// Glimpse's windows (a glimpse:// link), closing the menu gives the front back to the app that had it.
+    static func send(_ captures: [Capture], restoreFront: Bool = false, close: (() -> Void)? = nil,
+                     then: (() -> Void)? = nil) {
         guard !captures.isEmpty else { return }
         if captures.count == 1, AgentRequests.shared.answer(with: captures[0]) {
+            close?()
             HUD.show("Sent to \(AgentRequests.lastAnsweredAuthor ?? "the agent")", symbol: "paperplane.fill")
             then?()
             return
         }
-        guard let session = currentSession() else {
-            if captures.count == 1 {
-                Clipboard.copy(captures[0].image, scale: captures[0].scale)
-            } else {
-                Clipboard.copy(images: captures.map { ($0.image, $0.scale) })
-            }
+        cache = nil
+        let sessions = orderedSessions()
+        guard let first = sessions.first else {
+            close?()
+            copy(captures)
             HUD.show("No Claude Code or Codex session found. Copied instead", symbol: "doc.on.doc.fill", duration: 2.4)
             then?()
             return
         }
+        guard sessions.count > 1 else {
+            close?()
+            deliver(captures, to: first, then: then)
+            return
+        }
+        choose(among: sessions, restoreFront: restoreFront) { chosen in
+            guard let chosen else { return }
+            close?()
+            deliver(captures, to: chosen, then: then)
+        }
+    }
+
+    private static func copy(_ captures: [Capture]) {
+        if captures.count == 1 {
+            Clipboard.copy(captures[0].image, scale: captures[0].scale)
+        } else {
+            Clipboard.copy(images: captures.map { ($0.image, $0.scale) })
+        }
+    }
+
+    private static func deliver(_ captures: [Capture], to session: Session, then: (() -> Void)?) {
         let paths: [String]
         do {
             paths = try captures.map { try writeForSending($0).path }
@@ -73,8 +100,65 @@ enum AgentHandoff {
         if captures.count == 1, let request = AgentRequests.shared.request(for: captures[0]) {
             return "Send to \(request.author)"
         }
-        if let session = currentSession() { return "Send to \(session.kind.rawValue)" }
+        let sessions = cachedSessions()
+        if sessions.count > 1 { return "Send to…" }
+        if let session = sessions.first { return "Send to \(session.kind.rawValue)" }
         return "Send"
+    }
+
+    // MARK: Choosing
+
+    /// Pops up a menu of the sessions at the mouse, the first one under the pointer. `done` gets nil when it's closed
+    /// without a choice.
+    private static func choose(among sessions: [Session], restoreFront: Bool,
+                               done: @escaping @MainActor (Session?) -> Void) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(.sectionHeader(title: "Send to"))
+        var chosen: Session?
+        for (index, session) in sessions.enumerated() {
+            let label = label(for: session)
+            // ↩ picks the first (the pointer may not be on it); the others take their place in the list, 2 to 9.
+            let key = index == 0 ? "\r" : index < 9 ? "\(index + 1)" : ""
+            let item = ClosureMenuItem(title: label.title, keyEquivalent: key) { chosen = session }
+            item.keyEquivalentModifierMask = []
+            if #available(macOS 14.4, *) {
+                item.subtitle = label.detail
+            } else {
+                item.title = "\(label.title) — \(label.detail)"
+            }
+            item.image = session.host == NSRunningApplication.current ? nil : session.host.icon.map { icon in
+                let small = icon.copy() as! NSImage
+                small.size = NSSize(width: 18, height: 18)
+                return small
+            }
+            menu.addItem(item)
+        }
+        // The menu needs Glimpse active to get the keyboard. From Glimpse's own windows (the stack is a panel that
+        // leaves another app in front) the front stays with Glimpse after a cancel: giving it back would close the
+        // stack. A glimpse:// link has no window of ours behind the menu, so that one gives it back.
+        let previous = restoreFront
+            ? NSWorkspace.shared.frontmostApplication.flatMap { $0 == NSRunningApplication.current ? nil : $0 } : nil
+        NSApp.activate(ignoringOtherApps: true)
+        menu.popUp(positioning: menu.items[1], at: NSEvent.mouseLocation, in: nil)
+        // NSMenu sends the item's action before popUp returns; the hop only makes that ordering not matter.
+        DispatchQueue.main.async {
+            if chosen == nil, let previous { previous.activate() }
+            done(chosen)
+        }
+    }
+
+    /// The session's title (or folder) and where it runs: "Fix the login bug" / "Claude Code · ~/code/app · Ghostty".
+    static func label(for session: Session) -> (title: String, detail: String) {
+        let cwd = session.inbox?.cwd ?? ProcessList.cwd(of: session.pid)
+        let home = NSHomeDirectory()
+        let folder = cwd.map { $0 == home ? "~" : $0.hasPrefix(home + "/") ? "~" + $0.dropFirst(home.count) : $0 }
+        let title = session.inbox?.title ?? cwd.map { ($0 as NSString).lastPathComponent } ?? "\(session.kind.rawValue) \(session.pid)"
+        var detail = [session.kind.rawValue]
+        if let folder { detail.append(folder) }
+        if session.host != NSRunningApplication.current, let host = session.host.localizedName { detail.append(host) }
+        if session.inbox?.busy == true { detail.append("busy") }
+        return (title, detail.joined(separator: " · "))
     }
 
     /// Files sent to agents: a short path without spaces, so it pastes as one token.
@@ -164,17 +248,26 @@ enum AgentHandoff {
 
     // MARK: Finding the session
 
-    private static var cache: (date: Date, session: Session?)?
+    private static var cache: (date: Date, sessions: [Session])?
 
     /// The interactive Claude Code or Codex session whose window was in front most recently.
-    static func currentSession() -> Session? {
-        if let cache, Date().timeIntervalSince(cache.date) < 2, cache.session?.host.isTerminated != true {
-            return cache.session
+    static func currentSession() -> Session? { cachedSessions().first }
+
+    /// `orderedSessions()`, kept for 2 s: Send's title is asked for often.
+    private static func cachedSessions() -> [Session] {
+        if let cache, Date().timeIntervalSince(cache.date) < 2, !cache.sessions.contains(where: \.host.isTerminated) {
+            return cache.sessions
         }
+        let sessions = orderedSessions()
+        cache = (Date(), sessions)
+        return sessions
+    }
+
+    /// Every session Send can reach, the one whose window was in front most recently first.
+    static func orderedSessions() -> [Session] {
         let sessions = findSessions()
-        let session = pickMostRecent(sessions)
-        cache = (Date(), session)
-        return session
+        guard let first = pickMostRecent(sessions) else { return [] }
+        return [first] + sessions.filter { $0 != first }
     }
 
     private static func pickMostRecent(_ sessions: [Session]) -> Session? {
@@ -287,6 +380,15 @@ enum ProcessList {
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
         return pid_t(info.pbi_ppid)
+    }
+
+    /// The process's working folder.
+    static func cwd(of pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
+        let path = withUnsafeBytes(of: &info.pvi_cdir.vip_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        return path.isEmpty ? nil : path
     }
 
     static func path(of pid: pid_t) -> String? {

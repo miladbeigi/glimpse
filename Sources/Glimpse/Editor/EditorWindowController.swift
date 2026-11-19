@@ -243,19 +243,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         }
     }
 
-    /// Sends the image to the agent (answering it if it asked), then moves on or closes.
+    /// Sends the image to the agent (answering it if it asked), then moves on or closes. With several sessions running,
+    /// the editor stays open while you pick one, and stays open if you close the menu instead.
     func sendImage() {
         commitToCapture()
-        sent = true
         let capture = capture
         let next = context.next()
-        window?.performClose(nil)
+        // Off the key event (⌘↩ is a main-menu key equivalent), so the menu bar isn't left highlighted under the menu.
         DispatchQueue.main.async {
-            AgentHandoff.send([capture]) {
+            AgentHandoff.send([capture], close: { [weak self] in
+                self?.sent = true
+                self?.window?.performClose(nil)
+            }, then: {
                 if let (nextCapture, nextContext) = next {
                     EditorWindowController.open(capture: nextCapture, context: nextContext)
                 }
-            }
+            })
         }
     }
 

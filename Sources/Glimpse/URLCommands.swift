@@ -64,7 +64,7 @@ enum URLCommands {
             Collage.stitch(Array(RecentStore.shared.captures.suffix(n)))
         case "send-latest":
             RecentStore.shared.load()
-            if let last = RecentStore.shared.captures.last { AgentHandoff.send([last]) }
+            if let last = RecentStore.shared.captures.last { AgentHandoff.send([last], restoreFront: true) }
         case "capture-fullscreen": c.captureFullscreen(delay: Int(query["delay"] ?? "") ?? 0)
         case "capture-window": c.captureWindow()
         case "scrolling-capture": c.scrollingCapture()

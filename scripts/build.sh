@@ -8,8 +8,10 @@
 #
 # Environment:
 #   VERSION                app version (default: contents of ./VERSION)
-#   GLIMPSE_SIGN_IDENTITY  codesigning identity (default: the local identity from scripts/setup-signing.sh,
-#                          else an Apple Development / Developer ID identity, else ad-hoc)
+#   GLIMPSE_SIGN_IDENTITY  codesigning identity (default: the shared Glimpse identity pinned in
+#                          scripts/signing-identity, from scripts/setup-signing.sh --import). Every build should
+#                          carry that one: macOS ties Screen Recording and Microphone permission to it, so any
+#                          other signature asks for them again. --install refuses another one.
 #   ARCHS                  architectures to build (default: "arm64 x86_64")
 #   SDKROOT                SDK to build against (default: the active one, or the newest pre-27 SDK when the
 #                          Command Line Tools lack the SwiftUI macro plugin that SDK 27 needs)
@@ -34,7 +36,8 @@ fi
 if [ -z "${SDKROOT:-}" ]; then
   DEV="$(xcode-select -p 2>/dev/null || true)"
   SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
-  SDK_MAJOR="$(xcrun --show-sdk-version 2>/dev/null | cut -d. -f1)"
+  # `xcrun --show-sdk-version` fails on some setups (an SDK it can't look up); then judge by the SDK's name.
+  SDK_MAJOR="$( { xcrun --show-sdk-version 2>/dev/null || basename "$(readlink "$SDK" 2>/dev/null || echo "$SDK")" | tr -dc '0-9.'; } | cut -d. -f1)"
   if [ "${SDK_MAJOR:-0}" -ge 27 ] && [ -z "$(find "$DEV" -name 'libSwiftUIMacros*' -print -quit 2>/dev/null)" ]; then
     OLDER="$(ls -d "$(dirname "$SDK")"/MacOSX2[0-6].*.sdk 2>/dev/null | sort -V | tail -1 || true)"
     if [ -n "$OLDER" ]; then
@@ -77,15 +80,25 @@ cp "$ROOT/build/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 # SwiftPM resource bundles from dependencies, if any.
 for b in "$(dirname "${BINS[0]}")"/*.bundle; do [ -d "$b" ] && cp -R "$b" "$APP/Contents/Resources/"; done
 
-# Sign. A stable identity keeps macOS permissions (Screen Recording) across rebuilds.
+# Sign with the one shared identity (see scripts/setup-signing.sh): macOS ties Screen Recording and Microphone
+# permission to the certificate, so every build, local or released, on any Mac, must carry the same one.
+PINNED="$(tr -d '[:space:]' < scripts/signing-identity)"
 LOCAL_KC="$HOME/Library/Application Support/Glimpse-dev/glimpse-signing.keychain-db"
 KC_ARGS=()
 if [ -z "${GLIMPSE_SIGN_IDENTITY:-}" ] && [ -f "$LOCAL_KC" ]; then
   security unlock-keychain -p glimpse "$LOCAL_KC" 2>/dev/null || true
-  GLIMPSE_SIGN_IDENTITY="$(security find-identity -p codesigning "$LOCAL_KC" 2>/dev/null | awk '/Glimpse Local Signing/ {print $2; exit}')"
-  [ -n "$GLIMPSE_SIGN_IDENTITY" ] && KC_ARGS=(--keychain "$LOCAL_KC")
+  if security find-identity -p codesigning "$LOCAL_KC" 2>/dev/null | grep -q "$PINNED"; then
+    GLIMPSE_SIGN_IDENTITY="$PINNED"
+    KC_ARGS=(--keychain "$LOCAL_KC")
+  fi
 fi
-IDENTITY="${GLIMPSE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID/ {print $2; exit}')}"
+IDENTITY="${GLIMPSE_SIGN_IDENTITY:-}"
+SHARED=false
+[ "$IDENTITY" = "$PINNED" ] && SHARED=true
+if ! $SHARED; then
+  echo "warning: not signed with the shared Glimpse identity ($PINNED); macOS will ask for Screen Recording and" >&2
+  echo "         Microphone again for this build. Get it with: scripts/setup-signing.sh --import FILE.p12" >&2
+fi
 codesign --force --sign "${IDENTITY:--}" ${KC_ARGS[@]+"${KC_ARGS[@]}"} "$APP"
 echo "Built $APP (version $VERSION${UPDATE_REPO:+, updates from $UPDATE_REPO}, $(lipo -archs "$APP/Contents/MacOS/Glimpse"), signed: ${IDENTITY:-ad-hoc})"
 
@@ -99,7 +112,11 @@ for arg in "$@"; do
     echo "Wrote $ZIP and $ZIP.sha256"
     ;;
   --install)
-    pkill -x Glimpse 2>/dev/null && sleep 1 || true
+    $SHARED || { echo "Error: not installing a build without the shared identity (it would cost the permissions)." >&2; exit 1; }
+    # Quit the app only: other processes named Glimpse are the MCP servers of running agent sessions.
+    BUNDLE_ID="$(defaults read "$APP/Contents/Info.plist" CFBundleIdentifier)"
+    osascript -e "tell application id \"$BUNDLE_ID\" to quit" 2>/dev/null || true
+    for _ in $(seq 1 20); do pgrep -f '/Applications/Glimpse.app/Contents/MacOS/Glimpse$' >/dev/null || break; sleep 0.5; done
     rm -rf /Applications/Glimpse.app
     cp -R "$APP" /Applications/
     open /Applications/Glimpse.app

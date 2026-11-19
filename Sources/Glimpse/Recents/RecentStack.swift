@@ -264,9 +264,15 @@ final class RecentStackController: NSObject, NSWindowDelegate {
     func send() {
         let items = targets
         guard !items.isEmpty else { return }
-        hide(animated: true)
-        AgentHandoff.send(items)
-        selection = []
+        // With several sessions running, the stack stays up while you pick one (and if you close the menu instead).
+        // The menu is over by the time send returns; the choice lands just after.
+        holdOpen = true
+        AgentHandoff.send(items, close: { [weak self] in
+            self?.holdOpen = false
+            self?.hide(animated: true)
+            self?.selection = []
+        })
+        DispatchQueue.main.async { [weak self] in self?.holdOpen = false }
     }
 
     func remove() {
@@ -280,6 +286,44 @@ final class RecentStackController: NSObject, NSWindowDelegate {
         focusedID = remaining.isEmpty ? nil : remaining[min(firstIndex, remaining.count - 1)]
         selection = []
         RecentStore.shared.remove(ids)
+    }
+
+    /// Every card except ones an agent is waiting for you to choose from, once you confirm: their files are deleted.
+    var removableAll: Set<UUID> {
+        Set(captures.map(\.id)).subtracting(AgentRequests.shared.pendingChoice?.captureIDs ?? [])
+    }
+
+    /// Empties the stack (keeping cards an agent is waiting on), after asking: it can't be undone.
+    func removeAll() {
+        let ids = removableAll
+        guard !ids.isEmpty else { return }
+        // The alert takes the keyboard from the stack's panel, which would otherwise close.
+        holdOpen = true
+        defer { DispatchQueue.main.async { [weak self] in self?.holdOpen = false } }
+        let alert = NSAlert()
+        alert.messageText = ids.count == 1 ? "Remove the screenshot from Recent?" : "Remove all \(ids.count) screenshots from Recent?"
+        alert.informativeText = "They're deleted from Glimpse and can't be brought back. Copies you saved or pasted elsewhere stay."
+        let remove = alert.addButton(withTitle: ids.count == 1 ? "Remove" : "Remove All")
+        remove.hasDestructiveAction = true
+        // Nothing to undo: ↩ doesn't confirm, a click does (Esc cancels).
+        remove.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel")
+        // The stack's panel doesn't activate Glimpse: the app you were in is still in front, and gets it back after.
+        let previous = NSWorkspace.shared.frontmostApplication.flatMap { $0 == NSRunningApplication.current ? nil : $0 }
+        NSApp.activate(ignoringOtherApps: true)
+        let confirmed = alert.runModal() == .alertFirstButtonReturn
+        if confirmed {
+            selection = []
+            focusedID = captures.first { !ids.contains($0.id) }?.id
+            RecentStore.shared.remove(ids)
+        }
+        // Emptied, the stack hides itself. Still up (cancelled, or cards an agent is waiting on remain): keep using
+        // it from the keyboard.
+        if captures.isEmpty {
+            previous?.activate()
+        } else {
+            panel?.makeKey()
+        }
     }
 
     func pin() {
@@ -370,6 +414,7 @@ final class StackContentView: NSView {
             case .stitch: c.stitch()
             case .send: c.send()
             case .remove: c.remove()
+            case .removeAll: c.removeAll()
             }
         }
     }
@@ -429,7 +474,7 @@ final class StackContentView: NSView {
             card.refresh()
         }
         bar.update(selected: selection.count, hasFocus: controller.focusedID != nil,
-                   sendTitle: AgentHandoff.sendTitle(for: controller.targets))
+                   sendTitle: AgentHandoff.sendTitle(for: controller.targets), removableAll: controller.removableAll.count)
     }
 
     @MainActor
@@ -519,6 +564,8 @@ final class StackContentView: NSView {
             c.selectAll()
         case (kVK_Delete, .command), (kVK_ForwardDelete, []), (kVK_Delete, []):
             c.remove()
+        case (kVK_Delete, [.command, .shift]):
+            c.removeAll()
         case (kVK_ANSI_P, .command):
             c.pin()
         case (kVK_ANSI_W, .command):
@@ -805,6 +852,10 @@ final class StackCardView: NSView, NSDraggingSource {
             if c.targets.contains(where: { $0.savedURL != nil }) { add("Show in Finder") { c.reveal() } }
             menu.addItem(.separator())
             add(n > 1 ? "Remove \(n) from Recent" : "Remove from Recent", "\u{8}", .command) { c.remove() }
+            // Only when it would remove more than "Remove" above does.
+            if c.removableAll.count > 1, !c.removableAll.subtracting(c.targets.map(\.id)).isEmpty {
+                add("Remove All from Recent…", "\u{8}", [.command, .shift]) { c.removeAll() }
+            }
             c.holdOpen = true
             DispatchQueue.main.async { c.holdOpen = false }
             return menu
@@ -923,7 +974,7 @@ final class StackBanner: NSView {
 // MARK: - Action bar
 
 final class StackActionBar: NSView {
-    enum Action: CaseIterable { case copy, draw, stitch, send, remove }
+    enum Action: CaseIterable { case copy, draw, stitch, send, remove, removeAll }
 
     var onAction: ((Action) -> Void)?
     private var buttons: [Action: StackBarButton] = [:]
@@ -943,6 +994,7 @@ final class StackActionBar: NSView {
             (.stitch, "square.grid.2x2", "Stitch", "⌘S"),
             (.send, "paperplane", "Send", "⌘↩"),
             (.remove, "trash", "Remove", "⌘⌫"),
+            (.removeAll, "xmark.bin", "Remove All", "⌘⇧⌫"),
         ]
         for (action, symbol, title, key) in specs {
             let b = StackBarButton(symbol: symbol, shortcut: key)
@@ -955,8 +1007,10 @@ final class StackActionBar: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(selected: Int, hasFocus: Bool, sendTitle: String) {
+    func update(selected: Int, hasFocus: Bool, sendTitle: String, removableAll: Int) {
         buttons[.stitch]?.isEnabled = selected >= 2
+        buttons[.removeAll]?.isEnabled = removableAll > 0
+        buttons[.removeAll]?.toolTip = removableAll > 0 ? "Remove all \(removableAll) from Recent… (⌘⇧⌫)" : "Remove All (⌘⇧⌫)"
         for a in [Action.copy, .draw, .send, .remove] { buttons[a]?.isEnabled = hasFocus || selected > 0 }
         buttons[.send]?.toolTip = "\(sendTitle) (⌘↩)"
         buttons[.draw]?.toolTip = selected > 1 ? "Draw on \(selected), one after another (↩)" : "Draw (↩)"

@@ -104,9 +104,12 @@ that's required.
 
 ### Quick Access Overlay
 
-Every capture slides into a corner of the screen. Hover it for **Copy** and **Save**, or use the corner
-buttons to close, annotate, pin or copy its text. Drag it straight into Slack, Mail, Finder or any other
-app. Swipe it away, or bring back the last one you closed.
+Every capture slides into a corner of the screen. Hover it for **Copy** and **Save**, and a row of buttons
+to draw on it, keep it, copy its text, move it to [Recent Screenshots](#recent-screenshots) or **Send** it to
+your agent. **Keep** (the pin) stops the thumbnail from closing by itself until you click it again; Send keeps it
+too, so a send you cancel leaves it where it was. To float the screenshot over your windows, right-click it
+› **Pin to Screen**. Drag it straight into Slack, Mail, Finder or any other app. Swipe it away, or bring back the
+last one you closed.
 
 ![Quick Access Overlay](docs/overlay.png)
 
@@ -118,7 +121,8 @@ with `Esc` and you're right where you were.
 
 - **Click a card** to draw on it. Close the editor and you're back in the stack.
 - **Select several** with `⌘`-click, `⇧`-click, `Space` or `⇧↑`/`⇧↓`, then **Copy** `⌘C`, **Draw** `↩`,
-  **Stitch** `⌘S`, **Send** `⌘↩` or **Remove** `⌘⌫`.
+  **Stitch** `⌘S`, **Send** `⌘↩` or **Remove** `⌘⌫`. **Remove All** `⌘⇧⌫` (in the bar or the right-click menu)
+  empties the stack after asking, keeping any screenshots an agent is waiting for you to choose from.
 - **Drag** one or more cards into Claude Code, Slack, a chat or Finder. If you drew on a card, the dropped
   image has your drawing on it.
 - **Several in a row**: select a few and press `↩`. Copy or send one, and the next one opens.
@@ -132,14 +136,19 @@ the Shift double-tap needs the Accessibility permission.
 
 ### Send to your agent
 
-Draw on a screenshot and press **Send** (`⌘↩`, in the editor or the stack). It goes straight to the Claude Code
-session you were just in: the one whose window you used last, in a terminal, an editor or the Claude app.
+Draw on a screenshot and press **Send** (`⌘↩`, in the editor or the stack). With one Claude Code or Codex session
+running, it goes straight there, in a terminal, an editor or the Claude app. With several, a menu lists them by title
+(or folder), with the folder and the app each runs in. The one whose window you used last comes first: press `↩` to
+send there, or pick another (the next ones answer to `2` to `9`). Closing the menu sends nothing and leaves the
+editor or stack open.
 
 Send needs Glimpse's Claude Code plugin: **Settings › Agents › Claude Code plugin › Install** (it runs
 `claude plugin install` for you). The plugin keeps a small inbox for each running session. Send drops the
 screenshot there, and Claude Code delivers it to the session as a message, between turns: sent while Claude is busy,
 it waits for the turn to end. Nothing is typed into your terminal and no extra permission is needed. Sessions
-already running pick the plugin up after `/reload-plugins` or a restart.
+already running pick the plugin up after `/reload-plugins` or a restart. In a terminal the plugin's monitor delivers
+it; the Claude app runs Claude Code without plugin monitors, so there a hook does instead, waking Claude when the
+screenshot arrives.
 
 Codex, and Claude Code without the plugin, get the image's path pasted into their prompt instead (both attach a
 pasted image path as the image). That needs the Accessibility permission; without it the path is left on the
@@ -376,10 +385,22 @@ scripts/build.sh --zip       # also write build/Glimpse-<version>.zip and .sha25
 scripts/build.sh --debug     # debug build in build/debug/Glimpse.app
 ```
 
-macOS ties the Screen Recording permission to the app's signature, so ad-hoc builds lose it on every rebuild.
-For development, create a local signing identity once with `scripts/setup-signing.sh` (it lives in its own
-keychain under `~/Library/Application Support/Glimpse-dev/`); `build.sh` then uses it automatically. You can
-also set `GLIMPSE_SIGN_IDENTITY` to any signing identity.
+macOS ties the Screen Recording and Microphone permissions to the app's signing certificate, so every build
+carries one shared self-signed identity: local builds on any Mac and the GitHub releases alike. Installing a
+local build over a release, a release over a local build, or either on another Mac then never asks for them
+again. `scripts/signing-identity` pins its SHA-1; `build.sh` warns about (and `--install` refuses) any other
+signature. The Release workflow signs with the identity in the repo's Actions secrets (`--github` below).
+
+On a new Mac, import the identity once from the file kept in your password manager:
+
+```bash
+scripts/setup-signing.sh --import glimpse-signing.p12   # asks for the file's password
+scripts/setup-signing.sh --check
+```
+
+It lives in its own keychain under `~/Library/Application Support/Glimpse-dev/`. `--export FILE.p12` writes it
+out again, `--github` puts it in the repo's Actions secrets for releases, and `--new` only exists to replace it
+everywhere.
 
 ## Development
 
