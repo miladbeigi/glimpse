@@ -7,7 +7,9 @@ if CommandLine.arguments.dropFirst().first == "mcp" { MCPBridge.run() }
 // without `mcp`) would fight over the global shortcuts and the agent socket.
 #if DEBUG
 // The README screenshot renderer (DocsScenario) only draws windows and quits, so it can run beside the installed app.
+// So does the recent screenshots scenario (StackScenario), which keeps its stack in memory.
 let allowSecondCopy = ProcessInfo.processInfo.environment["GLIMPSE_DOCS_DIR"] != nil
+    || ["stack", "send"].contains(ProcessInfo.processInfo.environment["GLIMPSE_DEBUG_SCENARIO"] ?? "")
 #else
 let allowSecondCopy = false
 #endif

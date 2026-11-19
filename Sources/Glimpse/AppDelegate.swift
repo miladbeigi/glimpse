@@ -25,8 +25,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] phase, seconds in self?.updateStatusItem(phase: phase, elapsed: Double(seconds)) }
 
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["GLIMPSE_DEBUG_SCENARIO"] == "stack" {
+            RecentStore.shared.inMemoryOnly = true
+            StackScenario.run()
+            return
+        }
+        if ProcessInfo.processInfo.environment["GLIMPSE_DEBUG_SCENARIO"] == "send" {
+            RecentStore.shared.inMemoryOnly = true
+            SendScenario.run()
+            return
+        }
+        #endif
         HotkeyManager.shared.handler = { action in CaptureCoordinator.shared.perform(action) }
         HotkeyManager.shared.install()
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["GLIMPSE_DEBUG_SCENARIO"] != nil { RecentStore.shared.inMemoryOnly = true }
+        #endif
+        RecentStore.shared.load()
+        ShiftTapMonitor.shared.refresh()
+        AppActivity.shared.start()
+        ClaudePlugin.updateIfNeeded()
 
         #if DEBUG
         if DocsScenario.runIfRequested() { return }
@@ -60,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AgentServer.shared.stop()
+        RecentStore.shared.flush()
         Meetings.prepareForQuit()
     }
 
@@ -191,6 +211,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             mi.tag = s
             more.append(mi)
         }
+        let recent = item("Recent Screenshots", #selector(showRecent), symbol: "square.stack", hotkey: .showRecent)
+        recent.isEnabled = !RecentStore.shared.captures.isEmpty
+        if Preferences.shared.doubleShiftShowsRecent {
+            if #available(macOS 14.4, *) { recent.subtitle = "or double-tap right ⇧" }
+        }
+        menu.addItem(recent)
         let restore = item("Restore Recently Closed", #selector(restoreRecent), symbol: "clock.arrow.circlepath", hotkey: .restoreRecent)
         restore.isEnabled = QuickAccessManager.shared.recentlyClosed != nil
         more += [.separator(), restore]
@@ -268,6 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func annotateClipboard() { CaptureCoordinator.shared.annotateClipboard() }
     @objc private func pinClipboard() { CaptureCoordinator.shared.pinClipboard() }
     @objc private func restoreRecent() { QuickAccessManager.shared.restoreRecentlyClosed() }
+    @objc private func showRecent() { afterMenu { RecentStackController.shared.show() } }
     @objc private func unlockPins() { PinWindowController.unlockAll() }
     @objc private func installUpdate() {
         // install() only returns if it failed; Settings shows why.
@@ -315,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         saveAs.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(saveAs)
         fileMenu.addItem(NSMenuItem(title: "Pin to Screen", action: Selector(("editorPin:")), keyEquivalent: "p"))
+        fileMenu.addItem(NSMenuItem(title: "Send", action: Selector(("editorSend:")), keyEquivalent: "\r"))
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
         fileItem.submenu = fileMenu

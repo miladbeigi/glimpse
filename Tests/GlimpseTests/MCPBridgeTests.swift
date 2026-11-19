@@ -27,7 +27,8 @@ final class MCPBridgeTests: XCTestCase {
         let tools = try XCTUnwrap((response["result"] as? [String: Any])?["tools"] as? [[String: Any]])
         let names = tools.compactMap { $0["name"] as? String }
         XCTAssertEqual(Set(names), ["list_windows", "list_displays", "screenshot_screen", "screenshot_window", "screenshot_region", "read_text",
-                                    "start_recording", "stop_recording", "recording_status", "meeting_search", "meeting_transcript"])
+                                    "start_recording", "stop_recording", "recording_status", "meeting_search", "meeting_transcript",
+                                    "list_screenshots", "get_screenshot", "show_image", "ask_user", "ask_user_to_choose"])
         for tool in tools {
             XCTAssertEqual((tool["inputSchema"] as? [String: Any])?["type"] as? String, "object", "\(tool["name"] ?? "")")
             XCTAssertTrue(JSONSerialization.isValidJSONObject(tool))

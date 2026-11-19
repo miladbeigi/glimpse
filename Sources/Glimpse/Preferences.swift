@@ -119,6 +119,22 @@ final class Preferences: ObservableObject {
     @Published var cameraSize: CameraSize { didSet { defaults.set(cameraSize.rawValue, forKey: Keys.cameraSize) } }
     @Published var cameraMirror: Bool { didSet { defaults.set(cameraMirror, forKey: Keys.cameraMirror) } }
 
+    /// Keep the recent screenshots stack on disk (Application Support), so it survives a restart.
+    @Published var keepRecentScreenshots: Bool {
+        didSet {
+            defaults.set(keepRecentScreenshots, forKey: Keys.keepRecent)
+            if keepRecentScreenshots { RecentStore.shared.persistAll() } else { RecentStore.shared.deleteAllFiles() }
+        }
+    }
+    /// Double-tapping the right Shift key shows the recent screenshots stack.
+    @Published var doubleShiftShowsRecent: Bool {
+        didSet { defaults.set(doubleShiftShowsRecent, forKey: Keys.doubleShift); ShiftTapMonitor.shared.refresh() }
+    }
+    /// In the editor, typing right after drawing a box or an arrow writes a note beside it.
+    @Published var quickNotes: Bool { didSet { defaults.set(quickNotes, forKey: Keys.quickNotes) } }
+    /// Send also presses Return in the agent's terminal, submitting the screenshot right away.
+    @Published var sendSubmits: Bool { didSet { defaults.set(sendSubmits, forKey: Keys.sendSubmits) } }
+
     @Published private(set) var shortcuts: [HotkeyAction: KeyCombo]
 
     private enum Keys {
@@ -143,6 +159,10 @@ final class Preferences: ObservableObject {
         static let agentRecording = "agentRecording"
         static let meetingsEnabled = "meetingsEnabled"
         static let shortcuts = "shortcuts"
+        static let keepRecent = "keepRecentScreenshots"
+        static let doubleShift = "doubleShiftShowsRecent"
+        static let quickNotes = "quickNotes"
+        static let sendSubmits = "sendSubmits"
         static let recordFrameRate = "recordFrameRate"
         static let recordRetina = "recordRetina"
         static let recordShowCursor = "recordShowCursor"
@@ -192,6 +212,10 @@ final class Preferences: ObservableObject {
         agentAccess = bool(Keys.agentAccess, false)
         agentRecording = bool(Keys.agentRecording, false)
         meetingsEnabled = bool(Keys.meetingsEnabled, false)
+        keepRecentScreenshots = bool(Keys.keepRecent, true)
+        doubleShiftShowsRecent = bool(Keys.doubleShift, true)
+        quickNotes = bool(Keys.quickNotes, true)
+        sendSubmits = bool(Keys.sendSubmits, false)
         dataFolder = DataFolder.root
         selfTimerSeconds = d.object(forKey: Keys.selfTimer) == nil ? 5 : d.integer(forKey: Keys.selfTimer)
         recordFrameRate = d.integer(forKey: Keys.recordFrameRate) == 60 ? 60 : 30

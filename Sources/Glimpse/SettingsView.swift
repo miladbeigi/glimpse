@@ -319,6 +319,9 @@ private struct CaptureSettings: View {
                     ForEach([3, 5, 10], id: \.self) { Text("\($0) seconds").tag($0) }
                 }
             }
+            Section("Annotation") {
+                Toggle("Type right after drawing a box or arrow to add a note beside it", isOn: $prefs.quickNotes)
+            }
         }
         .formStyle(.grouped)
     }
@@ -412,6 +415,16 @@ private struct OverlaySettings: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+            Section {
+                Toggle("Double-tap right Shift to show recent screenshots", isOn: $prefs.doubleShiftShowsRecent)
+                Toggle("Keep recent screenshots after quitting", isOn: $prefs.keepRecentScreenshots)
+            } header: {
+                Text("Recent screenshots")
+            } footer: {
+                Text("Your last \(RecentStore.limit) screenshots, as cards at the edge of the screen. Click one to draw on it; ⌘-click to select several, then Copy ⌘C, Draw ↩ (one after another), Stitch ⌘S, Send ⌘↩ or Remove ⌘⌫. Drag cards into any app. Double-tapping Shift needs the Accessibility permission. Kept screenshots stay in ~/Library/Application Support/Glimpse/Recent.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .formStyle(.grouped)
     }
@@ -480,8 +493,16 @@ private struct AgentSettings: View {
                 command("Claude Code", claudeCommand)
                 command("Other MCP clients (Claude Desktop, Cursor, …)", jsonConfig)
             }
+            ClaudePluginSection()
             Section {
-                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region, read_text, start_recording, stop_recording, recording_status, meeting_search and meeting_transcript. Screenshots are also saved as full-resolution files; meeting_search finds recorded meetings by text, attendee or date and meeting_transcript returns one.")
+                Toggle("When pasting, also press Return", isOn: $prefs.sendSubmits)
+            } footer: {
+                Text("Codex, and Claude Code without the plugin, get the image's path pasted into their prompt instead, which needs the Accessibility permission (without it the path is left on the clipboard). When an agent asked you something with ask_user or ask_user_to_choose, Send answers it instead.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Section {
+                Text("Tools: list_windows, list_displays, screenshot_screen, screenshot_window, screenshot_region, read_text, start_recording, stop_recording, recording_status, meeting_search and meeting_transcript. Screenshots are also saved as full-resolution files; meeting_search finds recorded meetings by text, attendee or date and meeting_transcript returns one. To show you things, agents draw: show_image puts an image with their marks in your stack, ask_user waits for you to draw an answer and send it, ask_user_to_choose asks you to pick one of a few images. list_screenshots and get_screenshot read your recent screenshots.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -567,6 +588,58 @@ private struct PermissionSettings: View {
             }
             Spacer()
             if !granted { Button("Open Settings", action: action) }
+        }
+    }
+}
+
+/// Installs or removes the Claude Code plugin that Send delivers through.
+private struct ClaudePluginSection: View {
+    @State private var installed = ClaudePlugin.isInstalled
+    @State private var working = false
+    @State private var failure: String?
+
+    var body: some View {
+        Section {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Claude Code plugin")
+                    Text(installed ? "Installed. Sessions started from now on can receive screenshots." : "Not installed")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if working { ProgressView().controlSize(.small) }
+                Button(installed ? "Remove" : "Install") { toggle() }
+                    .disabled(working)
+            }
+            if let failure {
+                Text(failure).font(.caption).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Send")
+        } footer: {
+            Text("Send (⌘↩ in the editor and the recent screenshots stack) goes to the Claude Code session whose window you used last. With the plugin, it arrives as a message in that session, even while Claude is busy (it waits for the turn to end), without typing into your terminal. Sessions already running pick the plugin up after /reload-plugins or a restart.")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onAppear { installed = ClaudePlugin.isInstalled }
+    }
+
+    private func toggle() {
+        working = true
+        failure = nil
+        let install = !installed
+        DispatchQueue.global(qos: .userInitiated).async {
+            var message: String?
+            do {
+                if install { try ClaudePlugin.install() } else { try ClaudePlugin.uninstall() }
+            } catch {
+                message = error.localizedDescription
+            }
+            DispatchQueue.main.async {
+                working = false
+                failure = message
+                installed = ClaudePlugin.isInstalled
+            }
         }
     }
 }

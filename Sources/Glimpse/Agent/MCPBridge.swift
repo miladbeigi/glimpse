@@ -11,8 +11,15 @@ enum MCPBridge {
         screenshot_screen and screenshot_region for displays and areas; read_text to get text via OCR instead of an image. \
         Every screenshot is also saved as a full-resolution file whose path is in the result. \
         meeting_search finds recorded meetings by words said, title, attendee or date; meeting_transcript returns one \
-        speaker-labelled transcript, by the path from meeting_search or by time or title.
+        speaker-labelled transcript, by the path from meeting_search or by time or title. \
+        To show the user something on screen, draw on it: show_image puts an image with your marks (arrows, boxes, \
+        numbers, notes, in your own colour) in their screenshots stack; ask_user opens it with your question and waits \
+        for them to draw their answer and send it back; ask_user_to_choose offers a few images and returns the one they pick. \
+        list_screenshots and get_screenshot read the screenshots the user took recently, with their marks.
         """
+
+    /// The connected agent's `clientInfo.name`, passed to the app so it can label and colour the agent's marks.
+    static var clientName: String?
 
     static func run() -> Never {
         signal(SIGPIPE, SIG_IGN)
@@ -38,6 +45,7 @@ enum MCPBridge {
         let result: [String: Any]
         switch method {
         case "initialize":
+            if let info = params["clientInfo"] as? [String: Any], let name = info["name"] as? String { clientName = name }
             let requested = params["protocolVersion"] as? String
             let version = requested.flatMap { supportedProtocolVersions.contains($0) ? $0 : nil } ?? supportedProtocolVersions.last!
             let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -81,7 +89,9 @@ private final class AppConnection {
             guard ensureConnected() else {
                 return AgentTools.error("Couldn't reach the Glimpse app. Make sure Glimpse \(minimumVersion) or later is installed and can open.")
             }
-            if AgentIO.writeAll(fd, AgentIO.line(["name": name, "arguments": args])),
+            var forwarded = args
+            if let client = MCPBridge.clientName { forwarded["_client"] = client }
+            if AgentIO.writeAll(fd, AgentIO.line(["name": name, "arguments": forwarded])),
                let line = reader?.next(), let result = AgentIO.object(line) {
                 return result
             }

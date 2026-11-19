@@ -60,7 +60,7 @@ enum AnnotationKind: String, Codable {
     var isArea: Bool { [.filledRectangle, .pixelate, .blur, .spotlight].contains(self) }
 }
 
-struct Annotation: Identifiable, Equatable {
+struct Annotation: Identifiable, Equatable, Codable {
     var id = UUID()
     var kind: AnnotationKind
     var start: CGPoint
@@ -81,6 +81,9 @@ struct Annotation: Identifiable, Equatable {
         end.x += dx; end.y += dy
         points = points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
     }
+
+    /// An arrow drawn freehand, kept as its stroke (a straight arrow has no points).
+    var isCurvedArrow: Bool { kind == .arrow && points.count >= 3 }
 
     var counterDiameter: CGFloat { max(22, 14 + lineWidth * 4) }
 
@@ -115,6 +118,13 @@ struct Annotation: Identifiable, Equatable {
             }
             let pad = strokeWidth / 2
             return CGRect(x: minX - pad, y: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2)
+        case .arrow where isCurvedArrow:
+            var minX = points[0].x, minY = points[0].y, maxX = minX, maxY = minY
+            for p in points {
+                minX = min(minX, p.x); minY = min(minY, p.y); maxX = max(maxX, p.x); maxY = max(maxY, p.y)
+            }
+            let pad = max(6, lineWidth * 2.2)
+            return CGRect(x: minX - pad, y: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2)
         case .arrow, .line:
             return rect.insetBy(dx: -lineWidth * 2, dy: -lineWidth * 2)
         default:
@@ -130,6 +140,10 @@ struct Annotation: Identifiable, Equatable {
     /// `strict`: only hit the visible ink (used while a drawing tool is active).
     func hitTest(_ p: CGPoint, strict: Bool, tolerance: CGFloat = 6) -> Bool {
         switch kind {
+        case .arrow where isCurvedArrow:
+            let limit = lineWidth * 1.5 + tolerance
+            for i in 1..<points.count where distance(from: p, toSegment: points[i - 1], points[i]) <= limit { return true }
+            return false
         case .arrow, .line:
             return distance(from: p, toSegment: start, end) <= lineWidth / 2 + tolerance + (kind == .arrow ? lineWidth : 0)
         case .pen, .highlighter:
@@ -171,7 +185,7 @@ func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
 }
 
 /// Snapshot of everything the editor can change; used for undo and to reopen a capture's edits.
-struct EditorDocumentState: Equatable {
+struct EditorDocumentState: Equatable, Codable {
     var annotations: [Annotation]
     var cropRect: CGRect
     var outputScale: CGFloat

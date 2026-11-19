@@ -56,6 +56,15 @@ enum URLCommands {
             c.captureWindow(id: UInt32(query["windowid"]!)!)
         case "capture-area": c.captureArea()
         case "capture-previous-area": c.capturePreviousArea()
+        case "recent", "show-recent": RecentStackController.shared.show()
+        case "stitch-recent":
+            // glimpse://stitch-recent?count=3 joins the last few screenshots into one numbered image.
+            let n = min(max(Int(query["count"] ?? "") ?? 2, 2), RecentStore.limit)
+            RecentStore.shared.load()
+            Collage.stitch(Array(RecentStore.shared.captures.suffix(n)))
+        case "send-latest":
+            RecentStore.shared.load()
+            if let last = RecentStore.shared.captures.last { AgentHandoff.send([last]) }
         case "capture-fullscreen": c.captureFullscreen(delay: Int(query["delay"] ?? "") ?? 0)
         case "capture-window": c.captureWindow()
         case "scrolling-capture": c.scrollingCapture()

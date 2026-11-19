@@ -110,12 +110,57 @@ app. Swipe it away, or bring back the last one you closed.
 
 ![Quick Access Overlay](docs/overlay.png)
 
+### Recent screenshots
+
+Double-tap the right `Shift` key (or press `⌥⇧⌘0`) and your last 30 screenshots slide in as cards at the edge
+of the screen, newest at the bottom. The stack opens without taking focus from the app you're in; close it
+with `Esc` and you're right where you were.
+
+- **Click a card** to draw on it. Close the editor and you're back in the stack.
+- **Select several** with `⌘`-click, `⇧`-click, `Space` or `⇧↑`/`⇧↓`, then **Copy** `⌘C`, **Draw** `↩`,
+  **Stitch** `⌘S`, **Send** `⌘↩` or **Remove** `⌘⌫`.
+- **Drag** one or more cards into Claude Code, Slack, a chat or Finder. If you drew on a card, the dropped
+  image has your drawing on it.
+- **Several in a row**: select a few and press `↩`. Copy or send one, and the next one opens.
+- **Stitch** joins the selected cards into one image and numbers each piece in the order you picked them.
+  Claude shrinks large images before it reads them (to about 1568 px and 1.15 megapixels), so Stitch picks
+  the arrangement that's shrunk the least, keeping the most detail of every piece.
+
+Your marks stay editable: open a card again to move, change or delete any of them. The cards are kept in
+`~/Library/Application Support/Glimpse/Recent` (turn that off in **Settings › Quick Access**). Watching for
+the Shift double-tap needs the Accessibility permission.
+
+### Send to your agent
+
+Draw on a screenshot and press **Send** (`⌘↩`, in the editor or the stack). It goes straight to the Claude Code
+session you were just in: the one whose window you used last, in a terminal, an editor or the Claude app.
+
+Send needs Glimpse's Claude Code plugin: **Settings › Agents › Claude Code plugin › Install** (it runs
+`claude plugin install` for you). The plugin keeps a small inbox for each running session. Send drops the
+screenshot there, and Claude Code delivers it to the session as a message, between turns: sent while Claude is busy,
+it waits for the turn to end. Nothing is typed into your terminal and no extra permission is needed. Sessions
+already running pick the plugin up after `/reload-plugins` or a restart.
+
+Codex, and Claude Code without the plugin, get the image's path pasted into their prompt instead (both attach a
+pasted image path as the image). That needs the Accessibility permission; without it the path is left on the
+clipboard. Neither route reaches a cloud session (claude.ai/code): they only see sessions running on this Mac.
+
+Your agent can draw too, in its own colour. Through Glimpse's [MCP server](#ai-agents-mcp) it can put a
+screenshot with its arrows, boxes, numbers and notes in your stack, open one with a question and wait for you to
+draw your answer and send it back, or show you a few versions and ask which one you like.
+
 ### Annotate
 
 Arrow, line, rectangle, filled rectangle, ellipse, pen, highlighter, text (plain, outline or background),
 numbered steps, **pixelate** and **blur** for redaction, spotlight, crop and resize. Every annotation stays
 editable: select, move, resize, restyle or delete it. Colour presets, a custom colour, an eyedropper,
 undo/redo and zoom. Each tool has a single-key shortcut.
+
+- **The arrow draws like a pencil** and puts a head on the end: curve it around what's in the way, or keep
+  it straight (a nearly straight stroke becomes a clean straight arrow; hold `⇧` to snap the angle).
+- **Draw a box or an arrow and start typing**, and your note appears beside it: to the right of a box, past
+  the tail of an arrow. (Turn it off in **Settings › Capture** to keep single-key tool shortcuts right after
+  drawing.)
 
 ### Pin
 
@@ -127,8 +172,9 @@ keys, or lock it so clicks pass through.
 ### And
 
 - Every capture shortcut is configurable, and captures can be scripted with `glimpse://` URLs.
-- AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots, read text, record the screen and
-  search and read meeting transcripts through Glimpse's [MCP server](#ai-agents-mcp).
+- AI agents (Claude Code, Claude Desktop, Cursor, …) can take screenshots, read text, record the screen,
+  search and read meeting transcripts, and draw on screenshots to show or ask you something, through
+  Glimpse's [MCP server](#ai-agents-mcp).
 - Settings for what happens after a capture (overlay, clipboard, auto-save, open editor), save folder,
   PNG or JPEG, overlay position and size, recording (frame rate, resolution, cursor, countdown, audio and
   camera devices, bubble shape and size), meetings (calendar, language, speaker separation, your voice,
@@ -204,6 +250,7 @@ this repository can ship an update.
 | Capture Text | ⌥⇧⌘2 |
 | Restore Recently Closed | ⌥⇧⌘9 |
 | Record Screen (start / stop) | ⌥⇧⌘R |
+| Recent Screenshots | ⌥⇧⌘0, or double-tap right ⇧ |
 | Mute microphone (while meetings are on) | ⌃⌥M |
 
 The defaults stay clear of macOS's own ⇧⌘3/4/5. To use those instead, turn off the system screenshot
@@ -213,7 +260,7 @@ Glimpse's Settings.
 **In the editor:** V select · A arrow · L line · R rectangle · F filled rectangle · O ellipse · P pen ·
 H highlighter · T text · N counter · X pixelate · B blur · S spotlight · C crop.
 Hold ⇧ to snap angles and squares. ⌫ deletes, arrow keys nudge, ⌘D duplicates, ⌘Z / ⇧⌘Z undo and redo,
-⌘C copy, ⌘S save, ⇧⌘S save as, ⌘P pin, ⌘0 zoom to fit.
+⌘C copy, ⌘S save, ⇧⌘S save as, ⌘P pin, ⌘↩ send, ⌘0 zoom to fit.
 
 ## Automation
 
@@ -229,6 +276,9 @@ open "glimpse://self-timer?x=200&y=150&width=1000&height=600&delay=5"
 open "glimpse://capture-text?x=0&y=0&width=1200&height=300"
 open "glimpse://annotate?filepath=/path/to/image.png"
 ```
+
+Recent screenshots: `recent` shows the stack, `stitch-recent?count=3` stitches the last three, and
+`send-latest` sends the newest one to your agent.
 
 Also `capture-previous-area`, `restore-recently-closed`, `annotate-clipboard`, `pin-clipboard`,
 `pin?filepath=…`, `open-settings` (optionally `?tab=shortcuts`) and `permissions`. Region commands accept `display=N` (1-based).
@@ -277,6 +327,17 @@ Other clients take the same command in their MCP config:
 | `recording_status` | Whether a recording is running, its id, elapsed time and limit |
 | `meeting_search` | Finds recorded meetings by words in the title, attendees or what was said (`query`, all words must appear, `"quoted phrases"` kept together), `attendee`, and `from`/`to` dates; returns each meeting's date, title, attendees, transcript path and the matching paragraphs by speaker |
 | `meeting_transcript` | The transcript of a recorded meeting, by `path` from `meeting_search`, or a `time` during it or part of its `title` (and `date`); with none, the day's recorded meetings |
+| `list_screenshots` | The user's recent screenshots (the stack), newest first: id, time, size, who made it, label, number of marks |
+| `get_screenshot` | One recent screenshot as the user marked it up, with its marks as data |
+| `show_image` | Puts an image (a file, or a recent screenshot) with the agent's marks into the user's stack, or opens it in the editor |
+| `ask_user` | Opens an image with the agent's marks and a question, and waits until the user draws an answer and sends it; returns the marked-up image and the user's marks |
+| `ask_user_to_choose` | Shows 2–8 images as cards with a question and waits for the user to send one back; returns which one (and the image, if they drew on it) |
+
+Agents draw with `marks`: `arrow` (`from`/`to`, or `points` for a curved one), `line`, `box`, `ellipse`, `text`
+(`at`, `text`), `number` (numbered in order), `pen`, `highlight`, `spotlight` and `blur`, in pixels of the image
+(or of an `image_width`-wide copy). Arrows and boxes take a `label`, written beside them. Each agent draws in its
+own colour (Claude in terracotta, Codex in green) and its cards say who made them. When an agent is waiting on
+`ask_user` or `ask_user_to_choose`, **Send** answers it instead of pasting into the terminal.
 
 Screenshots come back inline, scaled to `max_size` (1568 px on the long edge by default, `0` for full size), and
 are also saved at full resolution (`save_path`, or a temporary folder); the result includes the file path and the

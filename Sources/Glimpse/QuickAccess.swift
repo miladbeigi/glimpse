@@ -247,6 +247,10 @@ final class QuickAccessPanel: QuickAccessStackPanel {
         case .text: manager.recognizeText(self)
         case .close: manager.close(self)
         case .reveal: manager.reveal(self)
+        case .send:
+            let capture = self.capture
+            manager.close(self)
+            AgentHandoff.send([capture])
         }
     }
 }
@@ -288,7 +292,7 @@ final class OverlayPillButton: NSButton {
 }
 
 final class QuickAccessView: NSView, NSDraggingSource {
-    enum Action { case copy, save, saveAs, annotate, pin, text, close, reveal }
+    enum Action { case copy, save, saveAs, annotate, pin, text, close, reveal, send }
 
     private weak var panel: QuickAccessPanel?
     private let imageLayer = CALayer()
@@ -439,6 +443,9 @@ final class QuickAccessView: NSView, NSDraggingSource {
         add("Annotate", #selector(annotateAction))
         add("Pin to Screen", #selector(pinAction))
         add("Copy Text (OCR)", #selector(textAction))
+        if let capture = panel?.capture {
+            add(MainActor.assumeIsolated { AgentHandoff.sendTitle(for: [capture]) }, #selector(sendAction))
+        }
         if panel?.capture.savedURL != nil {
             add("Show in Finder", #selector(revealAction))
         }
@@ -455,6 +462,7 @@ final class QuickAccessView: NSView, NSDraggingSource {
     @objc private func textAction() { panel?.perform(.text) }
     @objc private func closeAction() { panel?.perform(.close) }
     @objc private func revealAction() { panel?.perform(.reveal) }
+    @objc private func sendAction() { panel?.perform(.send) }
 
     // MARK: NSDraggingSource
 

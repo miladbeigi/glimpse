@@ -104,6 +104,19 @@ enum Renderer {
             ctx.setLineWidth(a.lineWidth)
             ctx.strokeLineSegments(between: [a.start, a.end])
 
+        case .arrow where a.isCurvedArrow:
+            guard let (shaft, head) = FreehandArrow.paths(a.points, width: a.lineWidth) else { return }
+            applyShadow(ctx, strength: 0.35)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            ctx.addPath(shaft)
+            ctx.setStrokeColor(color)
+            ctx.setLineWidth(max(1.5, a.lineWidth * 0.9))
+            ctx.strokePath()
+            ctx.addPath(head)
+            ctx.setFillColor(color)
+            ctx.fillPath()
+            ctx.endTransparencyLayer()
+
         case .arrow:
             guard let path = arrowPath(from: a.start, to: a.end, width: a.lineWidth) else { return }
             applyShadow(ctx, strength: 0.35)
