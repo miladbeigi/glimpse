@@ -130,6 +130,10 @@ with `Esc` and you're right where you were.
   Claude shrinks large images before it reads them (to about 1568 px and 1.15 megapixels), so Stitch picks
   the arrangement that's shrunk the least, keeping the most detail of every piece.
 
+![Three screenshots stitched into one image, numbered 1 to 3](docs/stitch.png)
+
+![The recent screenshots stack beside a window, with two cards selected and an agent's card at the bottom](docs/recent.png)
+
 Your marks stay editable: open a card again to move, change or delete any of them. The cards are kept in
 `~/Library/Application Support/Glimpse/Recent` (turn that off in **Settings › Quick Access**). Watching for
 the Shift double-tap needs the Accessibility permission.
@@ -141,6 +145,8 @@ running, it goes straight there, in a terminal, an editor or the Claude app. Wit
 (or folder), with the folder and the app each runs in. The one whose window you used last comes first: press `↩` to
 send there, or pick another (the next ones answer to `2` to `9`). Closing the menu sends nothing and leaves the
 editor or stack open.
+
+![Sending a marked-up chart: the Send menu lists three agent sessions with their folders and apps](docs/send.png)
 
 Send needs Glimpse's Claude Code plugin: **Settings › Agents › Claude Code plugin › Install** (it runs
 `claude plugin install` for you). The plugin keeps a small inbox for each running session. Send drops the
@@ -421,7 +427,12 @@ everywhere.
   open -n build/debug/Glimpse.app --env GLIMPSE_DOCS_DIR="$PWD/docs" --env GLIMPSE_DOCS_SAMPLE=/path/to/sample.png
   ```
 
-  Add `--env GLIMPSE_DOCS_ONLY=recording` to render only `recording.png` and `settings.png`. The camera bubble
+  The sample is [`docs/sample.html`](docs/sample.html), a made-up dashboard: screenshot it at 1200 × 486 points
+  on a Retina display (or at 2× in a browser) and save it at 144 dpi, so the marks land where the scenario expects.
+
+  Add `--env GLIMPSE_DOCS_ONLY=recording` to render only `recording.png` and `settings.png`, or
+  `--env GLIMPSE_DOCS_ONLY=recent` for `editor.png`, `overlay.png`, `recent.png` (the stack), `stitch.png` and
+  `send.png` (the Send menu, listing made-up sessions). The renderer never reads or writes your own recent screenshots. The camera bubble
   shows `--env GLIMPSE_DOCS_AVATAR=/path/face.png` (an AI-generated face, not a real person) or a drawn
   silhouette, never your camera.
 

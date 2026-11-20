@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+body{width:1200px;height:486px;font-family:-apple-system,"SF Pro Text",sans-serif;display:flex;background:#f3f4f8;color:#14151a}
+.side{width:190px;background:#1c1e29;color:#c9cbd6;padding:24px 16px}
+.side b{display:block;color:#fff;font-size:17px;margin:0 0 22px 0}.side b span{color:#7c83ff}
+.side p{padding:8px 10px;margin:0 0 7px;border-radius:7px;font-size:14px}.side p.on{background:#2c2f40;color:#fff}
+.main{flex:1;padding:26px 30px 0}
+.head{display:flex;justify-content:space-between;align-items:flex-start}
+h1{font-size:21px;font-weight:700}small{font-size:13px;color:#646777;display:block;margin-top:5px}
+.btn{background:#4f5be8;color:#fff;font-weight:600;font-size:14px;padding:9px 14px;border-radius:7px;margin-top:0}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:20px}
+.kpis div{background:#fff;border-radius:10px;padding:16px 18px;height:96px}
+.kpis small{margin:0 0 6px;font-size:12px}.kpis b{font-size:23px;display:block}.kpis em{font-style:normal;font-size:12px;color:#16a34a}.kpis em.dn{color:#e11d48}
+.row{display:grid;grid-template-columns:575px 1fr;gap:16px;margin-top:18px}
+.card{background:#fff;border-radius:10px;padding:16px 18px;height:250px}
+.card h2{font-size:14px;font-weight:700}
+.bars{display:flex;align-items:flex-end;gap:12px;height:170px;margin-top:14px}
+.bars i{flex:1;background:linear-gradient(#7c83ff,#5560ee);border-radius:4px 4px 0 0;height:calc(var(--h)*1%)}
+.months{display:flex;gap:12px;margin-top:6px}.months span{flex:1;text-align:center;font-size:11px;color:#646777}
+.cust p{display:flex;align-items:center;border-bottom:1px solid #eee;height:36px;font-size:14px}
+.cust p:last-child{border:0}
+.cust .n{width:104px}.cust .e{flex:1;color:#555;font-size:13px}
+.cust em{font-style:normal;font-size:11px;font-weight:600;padding:2px 7px;border-radius:9px;background:#dcfce7;color:#15803d}
+.cust em.p{background:#fef3c7;color:#b45309}
+</style></head><body>
+<div class="side"><b>North<span>wind</span></b><p class="on">Dashboard</p><p>Customers</p><p>Orders</p><p>Reports</p><p>Settings</p></div>
+<div class="main">
+<div class="head"><div><h1>Revenue overview</h1><small>Last 12 months · updated just now</small></div><span class="btn">Export report</span></div>
+<div class="kpis"><div><small>Revenue</small><b>$482,910</b><em>▲ 12.4% vs last year</em></div><div><small>New customers</small><b>1,284</b><em>▲ 8.1%</em></div><div><small>Churn rate</small><b>2.3%</b><em class="dn">▲ 0.4%</em></div><div><small>Avg. order</small><b>$86.40</b><em>▲ 3.2%</em></div></div>
+<div class="row"><div class="card"><h2>Monthly revenue</h2><div class="bars"><i style="--h:42"></i><i style="--h:54"></i><i style="--h:48"></i><i style="--h:62"></i><i style="--h:58"></i><i style="--h:70"></i><i style="--h:66"></i><i style="--h:79"></i><i style="--h:75"></i><i style="--h:86"></i><i style="--h:92"></i><i style="--h:100"></i></div>
+<div class="months"><span>Oct</span><span>Nov</span><span>Dec</span><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div>
+<div class="card cust"><h2 style="margin-bottom:8px">Recent customers</h2>
+<p><span class="n">Ava Thompson</span><span class="e">ava.t@example.com</span><em>Paid</em></p>
+<p><span class="n">Liam Carter</span><span class="e">liam@example.com</span><em class="p">Pending</em></p>
+<p><span class="n">Sofia Nguyen</span><span class="e">sofia.n@example.com</span><em>Paid</em></p>
+<p><span class="n">Noah Patel</span><span class="e">noah.p@example.com</span><em>Paid</em></p>
+<p><span class="n">Mia Rossi</span><span class="e">mia@example.com</span><em class="p">Pending</em></p></div></div>
+</div></body></html>
