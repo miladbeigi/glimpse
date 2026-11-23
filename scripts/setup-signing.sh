@@ -93,7 +93,8 @@ case "${1:-}" in
   --check)
     have="$(local_hash)"
     if [ "$have" = "$PINNED" ]; then echo "OK: this Mac has the shared identity ($PINNED)."
-    else fail "this Mac ${have:+has $have, not the shared identity}${have:-has no Glimpse signing identity}. Run scripts/setup-signing.sh --import FILE.p12."
+    elif [ -n "$have" ]; then fail "this Mac has $have, not the shared identity ($PINNED). Run scripts/setup-signing.sh --import FILE.p12."
+    else fail "this Mac has no Glimpse signing identity. Run scripts/setup-signing.sh --import FILE.p12."
     fi
     ;;
   --new)

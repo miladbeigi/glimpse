@@ -40,7 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotkeyManager.shared.handler = { action in CaptureCoordinator.shared.perform(action) }
         HotkeyManager.shared.install()
         #if DEBUG
-        if ProcessInfo.processInfo.environment["GLIMPSE_DEBUG_SCENARIO"] != nil { RecentStore.shared.inMemoryOnly = true }
+        // Debug scenarios and the docs renderer never read or write your real recent screenshots.
+        let env = ProcessInfo.processInfo.environment
+        if env["GLIMPSE_DEBUG_SCENARIO"] != nil || env["GLIMPSE_DOCS_DIR"] != nil { RecentStore.shared.inMemoryOnly = true }
         #endif
         RecentStore.shared.load()
         ShiftTapMonitor.shared.refresh()
