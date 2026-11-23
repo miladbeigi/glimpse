@@ -6,7 +6,8 @@ import Darwin
 ///
 /// When an agent is waiting for an answer (ask_user, ask_user_to_choose), Send answers it. Otherwise, with one
 /// session running it goes there; with several, a menu lists them, the one whose window was in front most recently
-/// first. Either way:
+/// first. A box then names the session and takes an optional message to send with the screenshots (`SendComposer`).
+/// Either way:
 /// - a Claude Code session with Glimpse's plugin gets the image through its inbox (`ClaudePlugin`): no typing, no
 ///   Accessibility, and a request sent mid-turn waits for the turn to end;
 /// - any other `claude` or `codex` in a terminal gets the image's path pasted into its prompt (both attach a pasted
@@ -28,8 +29,8 @@ enum AgentHandoff {
     // MARK: Send
 
     /// `close` puts away the window Send was pressed in. It runs once the destination is settled, so a session menu
-    /// opens while that window is still up: closing it first hands the front to another app, which shuts the menu.
-    /// Closing the menu sends nothing and runs neither `close` nor `then`. `then` runs once the image has reached the
+    /// and the message box open while that window is still up: closing it first hands the front to another app, which
+    /// shuts the menu. Closing the menu or cancelling the box sends nothing and runs neither `close` nor `then`. `then` runs once the image has reached the
     /// agent (or the clipboard), e.g. to open the next one of a batch. `restoreFront`: when Send came from outside
     /// Glimpse's windows (a glimpse:// link), closing the menu gives the front back to the app that had it.
     static func send(_ captures: [Capture], restoreFront: Bool = false, close: (() -> Void)? = nil,
@@ -42,6 +43,9 @@ enum AgentHandoff {
             return
         }
         cache = nil
+        // Read before the menu or the box brings Glimpse forward.
+        let previous = restoreFront
+            ? NSWorkspace.shared.frontmostApplication.flatMap { $0 == NSRunningApplication.current ? nil : $0 } : nil
         let sessions = orderedSessions()
         guard let first = sessions.first else {
             close?()
@@ -51,14 +55,25 @@ enum AgentHandoff {
             return
         }
         guard sessions.count > 1 else {
-            close?()
-            deliver(captures, to: first, then: then)
+            compose(captures, to: first, previousApp: previous, close: close, then: then)
             return
         }
-        choose(among: sessions, restoreFront: restoreFront) { chosen in
+        choose(among: sessions, previousApp: previous) { chosen in
             guard let chosen else { return }
+            compose(captures, to: chosen, previousApp: previous, close: close, then: then)
+        }
+    }
+
+    /// Asks for an optional message to go with the screenshots, then sends. Cancelling sends nothing and runs neither
+    /// `close` nor `then`, like closing the session menu.
+    private static func compose(_ captures: [Capture], to session: Session, previousApp: NSRunningApplication?,
+                                close: (() -> Void)?, then: (() -> Void)?) {
+        let label = label(for: session)
+        SendComposer.ask(title: label.title, detail: label.detail, images: captures.map(\.image),
+                         previousApp: previousApp) { message in
+            guard let message else { return }
             close?()
-            deliver(captures, to: chosen, then: then)
+            deliver(captures, message: message.isEmpty ? nil : message, to: session, then: then)
         }
     }
 
@@ -70,7 +85,7 @@ enum AgentHandoff {
         }
     }
 
-    private static func deliver(_ captures: [Capture], to session: Session, then: (() -> Void)?) {
+    private static func deliver(_ captures: [Capture], message: String?, to session: Session, then: (() -> Void)?) {
         let paths: [String]
         do {
             paths = try captures.map { try writeForSending($0).path }
@@ -81,7 +96,7 @@ enum AgentHandoff {
         }
         if let inbox = session.inbox {
             do {
-                try ClaudePlugin.deliver(ClaudePlugin.requestLine(paths: paths), to: inbox)
+                try ClaudePlugin.deliver(ClaudePlugin.requestLine(paths: paths, message: message), to: inbox)
                 cache = nil
                 if session.host != NSRunningApplication.current { session.host.activate() }
                 HUD.show(inbox.busy ? "Sent to Claude Code. It reads it when the current turn ends" : "Sent to Claude Code",
@@ -92,7 +107,10 @@ enum AgentHandoff {
                 NSLog("Glimpse: couldn't write to the Claude Code inbox: \(error.localizedDescription); pasting instead")
             }
         }
-        paste(paths.joined(separator: " ") + " ", into: session, then: then)
+        // A terminal session gets the message after the paths, as a paste of its own: an agent attaches a pasted path
+        // as an image only when the paste is nothing but paths. One line, so pasting it doesn't send it early.
+        paste([paths.joined(separator: " ") + " "] + (message.map { [ClaudePlugin.oneLine($0)] } ?? []),
+              into: session, then: then)
     }
 
     /// The Send button's title for these cards.
@@ -110,7 +128,7 @@ enum AgentHandoff {
 
     /// Pops up a menu of the sessions at the mouse, the first one under the pointer. `done` gets nil when it's closed
     /// without a choice.
-    private static func choose(among sessions: [Session], restoreFront: Bool,
+    private static func choose(among sessions: [Session], previousApp previous: NSRunningApplication?,
                                done: @escaping @MainActor (Session?) -> Void) {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -136,9 +154,7 @@ enum AgentHandoff {
         }
         // The menu needs Glimpse active to get the keyboard. From Glimpse's own windows (the stack is a panel that
         // leaves another app in front) the front stays with Glimpse after a cancel: giving it back would close the
-        // stack. A glimpse:// link has no window of ours behind the menu, so that one gives it back.
-        let previous = restoreFront
-            ? NSWorkspace.shared.frontmostApplication.flatMap { $0 == NSRunningApplication.current ? nil : $0 } : nil
+        // stack. A glimpse:// link has no window of ours behind the menu, so that one gives it back (`previous`).
         NSApp.activate(ignoringOtherApps: true)
         menu.popUp(positioning: menu.items[1], at: NSEvent.mouseLocation, in: nil)
         // NSMenu sends the item's action before popUp returns; the hop only makes that ordering not matter.
@@ -182,13 +198,15 @@ enum AgentHandoff {
 
     // MARK: Pasting
 
-    private static func paste(_ text: String, into session: Session, then: (() -> Void)?) {
+    /// Pastes `pieces` one after another (each its own ⌘V), then presses ↩ if Send submits.
+    private static func paste(_ pieces: [String], into session: Session, then: (() -> Void)?) {
         let pasteboard = NSPasteboard.general
         let saved = savePasteboard(pasteboard)
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-
         let trusted = AXIsProcessTrusted()
+        pasteboard.clearContents()
+        // Without Accessibility only one paste is left for you to make: everything in it.
+        pasteboard.setString(trusted ? pieces[0] : pieces.joined(), forType: .string)
+
         session.host.activate()
         let name = session.kind.rawValue
         guard trusted else {
@@ -206,6 +224,13 @@ enum AgentHandoff {
             }
             try? await Task.sleep(nanoseconds: 80_000_000)
             postKey(kVK_ANSI_V, flags: .maskCommand)
+            for piece in pieces.dropFirst() {
+                // Give the terminal time to read the clipboard (and the agent to take in the image) first.
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                pasteboard.clearContents()
+                pasteboard.setString(piece, forType: .string)
+                postKey(kVK_ANSI_V, flags: .maskCommand)
+            }
             if Preferences.shared.sendSubmits {
                 try? await Task.sleep(nanoseconds: 350_000_000)
                 postKey(kVK_Return, flags: [])
@@ -213,7 +238,7 @@ enum AgentHandoff {
             HUD.show("Sent to \(name)", symbol: "paperplane.fill")
             // Give the terminal time to read the clipboard before putting the user's back.
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            if pasteboard.string(forType: .string) == text { restorePasteboard(pasteboard, saved) }
+            if pasteboard.string(forType: .string) == pieces.last { restorePasteboard(pasteboard, saved) }
             then?()
         }
     }

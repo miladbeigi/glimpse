@@ -442,11 +442,17 @@ enum ClaudePlugin {
         text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
     }
 
-    /// What the session receives.
-    static func requestLine(paths: [String]) -> String {
+    /// What the session receives. `message` is what the user typed to go with the screenshots, if anything; it comes
+    /// last, so whatever it says can't be mistaken for Glimpse's own words.
+    static func requestLine(paths: [String], message: String? = nil) -> String {
         let images = paths.map { "\"\($0)\"" }.joined(separator: ", ")
         let what = paths.count == 1 ? "a screenshot they drew on" : "\(paths.count) screenshots they drew on, in this order"
-        return "From Glimpse: the user sent you \(what): \(images). Read the image\(paths.count == 1 ? "" : "s") and act on "
-            + "what they drew and wrote on \(paths.count == 1 ? "it" : "them"): their arrows, boxes and notes point at what they mean."
+        let one = paths.count == 1
+        let typed = message.map { oneLine($0).trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        var line = "From Glimpse: the user sent you \(what): \(images). Read the image\(one ? "" : "s") and act on "
+        if typed != nil { line += "their message and on " }
+        line += "what they drew and wrote on \(one ? "it" : "them"): their arrows, boxes and notes point at what they mean."
+        if let typed { line += " Their message: \(typed)" }
+        return line
     }
 }
