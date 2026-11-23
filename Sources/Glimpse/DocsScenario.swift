@@ -11,6 +11,7 @@ import Meetings
 /// renders just `meeting.png`, `transcripts.png` and `settings-meetings.png`; `GLIMPSE_DOCS_ONLY=overlay` renders
 /// `overlay.png` plus each thumbnail hovered on its own. `GLIMPSE_DOCS_ONLY=recent` renders `editor.png`, `overlay.png`,
 /// `recent.png` (the recent screenshots stack), `stitch.png` and `send.png` (the Send menu, with sample sessions).
+/// `GLIMPSE_DOCS_ONLY=composer` renders Send's message box.
 /// `--env GLIMPSE_DOCS_CALL=/path/call.png` is the video-call window behind the meeting pill (default: the sample).
 /// Sample meetings are written to a temporary folder, never to your meeting history or transcripts. Add
 /// `--args -meetingsEnabled YES` so Settings › Meetings shows meetings turned on (not saved).
@@ -42,6 +43,8 @@ enum DocsScenario {
                 await editor(sample: sample, scale: scale, out: out)
                 await overlay(sample: sample, scale: scale, out: out)
                 await recent(sample: sample, scale: scale, out: out)
+            } else if env["GLIMPSE_DOCS_ONLY"] == "composer" {
+                await composer(sample: sample, out: out)
             } else {
                 await run(sample: sample, scale: scale, out: out)
             }
@@ -69,6 +72,35 @@ enum DocsScenario {
                let (img, _) = try? await ScreenCapture.captureWindow(CGWindowID(p.windowNumber)) {
                 try? ImageExporter.write(img, scale: 1, to: out.appendingPathComponent("hud-\(i + 1).png"))
             }
+        }
+    }
+
+    /// `composer-<n>.png`: Send's message box for one screenshot and for three, to check its layout
+    /// (GLIMPSE_DOCS_ONLY=composer). Cancelled after each, so nothing is sent.
+    private static func composer(sample: CGImage, out: URL) async {
+        let cases: [(String, String, Int)] = [
+            ("Fix the login bug", "Claude Code · ~/code/app · Claude", 1),
+            ("A much longer session title that will not fit on one line of the box", "Claude Code · ~/code/a/very/deep/folder/somewhere · Ghostty · busy", 3),
+        ]
+        for (i, (title, detail, count)) in cases.enumerated() {
+            SendComposer.ask(title: title, detail: detail, images: Array(repeating: sample, count: count),
+                             previousApp: nil) { _ in }
+            await sleep(Double(ProcessInfo.processInfo.environment["GLIMPSE_DOCS_HOLD"] ?? "") ?? 0.8)
+            // Not necessarily key: launched from a shell, Glimpse may not get to be the active app.
+            let p = NSApp.windows.first { $0.isVisible && $0.level == .floating && $0.contentView is NSVisualEffectView }
+            do {
+                if let p {
+                    let (img, _) = try await ScreenCapture.captureWindow(CGWindowID(p.windowNumber))
+                    try ImageExporter.write(img, scale: 1, to: out.appendingPathComponent("composer-\(i + 1).png"))
+                }
+            } catch {
+                // Drawn from the view instead (without the blurred background) when the window can't be captured.
+                if let view = p?.contentView, let img = render(view) {
+                    try? ImageExporter.write(img, scale: p?.backingScaleFactor ?? 2,
+                                             to: out.appendingPathComponent("composer-\(i + 1).png"))
+                }
+            }
+            p?.cancelOperation(nil)
         }
     }
 

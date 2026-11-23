@@ -93,7 +93,7 @@ enum StackScenario {
 
 #if DEBUG
 /// DEBUG-only: `GLIMPSE_DEBUG_SCENARIO=send GLIMPSE_DEBUG_IMAGES=a.png` finds agent sessions as Send does, sends the image
-/// to the chosen one, prints what happened and quits.
+/// to the chosen one (once you press ↩ in the message box), prints what happened and quits.
 @MainActor
 enum SendScenario {
     static func run() {

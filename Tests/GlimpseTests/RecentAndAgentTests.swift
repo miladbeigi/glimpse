@@ -346,6 +346,17 @@ final class ClaudePluginTests: XCTestCase {
         XCTAssertTrue(line.hasPrefix("From Glimpse:"))
         XCTAssertTrue(line.contains("\"/tmp/a.png\", \"/tmp/b.png\""))
         XCTAssertEqual(ClaudePlugin.oneLine("a\nb\n  c"), "a b c")
+        XCTAssertFalse(line.contains("Their message"))
+    }
+
+    /// A typed message goes last, on the same line, and an empty one is left out.
+    func testRequestLineCarriesTheMessage() {
+        let line = ClaudePlugin.requestLine(paths: ["/tmp/a.png"], message: "This is the sample\n  from earlier")
+        XCTAssertFalse(line.contains("\n"))
+        XCTAssertTrue(line.contains("act on their message and on what they drew"))
+        XCTAssertTrue(line.hasSuffix("Their message: This is the sample from earlier"))
+        XCTAssertEqual(ClaudePlugin.requestLine(paths: ["/tmp/a.png"], message: " \n "),
+                       ClaudePlugin.requestLine(paths: ["/tmp/a.png"]))
     }
 
     func testManifestsAreValidJSON() throws {

@@ -164,8 +164,14 @@ final class RecentStackController: NSObject, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         // Clicking into another app closes the stack, unless something of ours is still going on.
         DispatchQueue.main.async { [self] in
-            guard isVisible, !holdOpen, panel?.isKeyWindow == false,
-                  AgentRequests.shared.pendingChoice == nil else { return }
+            guard isVisible, panel?.isKeyWindow == false else { return }
+            // Send's message box has the keyboard: look again once it's closed (cancelled, the stack gets it back).
+            // Before holdOpen, which Send still holds while the box opens.
+            if SendComposer.isShowing {
+                SendComposer.afterClose { [weak self] in self?.windowDidResignKey(notification) }
+                return
+            }
+            guard !holdOpen, AgentRequests.shared.pendingChoice == nil else { return }
             hide()
         }
     }
